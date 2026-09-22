@@ -1,0 +1,17 @@
+{
+  "project" : {
+    "configurations" : [
+      "Debug",
+      "Release",
+      "Test-Release"
+    ],
+    "name" : "Enshi",
+    "schemes" : [
+      "Enshi"
+    ],
+    "targets" : [
+      "Enshi",
+      "Tests"
+    ]
+  }
+}

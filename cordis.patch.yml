@@ -1,0 +1,6 @@
+# dsh-xcodebuild bundle patch: mounts the plugin into a profile layer stack.
+# The profile's own cordis.patch.yml and any --patch overlays still apply after
+# this layer; a row here can be overridden by id in a later layer.
+- insert:
+    - id: dsh-xcodebuild
+      name: dsh-xcodebuild

@@ -1,0 +1,94 @@
+{
+  "name": "dsh-xcodebuild",
+  "version": "0.1.0",
+  "description": "Xcode build and development loop for DeepSeek Harness: build/test/clean/archive/run with a live, filterable build log panel.",
+  "author": "chuckliang <harde1@163.com>",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "xcode",
+    "xcodebuild",
+    "ios",
+    "macos",
+    "build"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/harde1/dsh-xcodebuild.git"
+  },
+  "homepage": "https://github.com/harde1/dsh-xcodebuild#readme",
+  "bugs": {
+    "url": "https://github.com/harde1/dsh-xcodebuild/issues"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "main": "lib/index.js",
+  "exports": {
+    ".": {
+      "default": "./lib/index.js"
+    },
+    "./client": {
+      "default": "./lib/client.js"
+    },
+    "./ring": {
+      "default": "./lib/ring.js"
+    },
+    "./classify": {
+      "default": "./lib/classify.js"
+    },
+    "./legacy-launch": {
+      "default": "./lib/legacy-launch.js"
+    },
+    "./projects": {
+      "default": "./lib/projects.js"
+    },
+    "./listing": "./lib/listing.js",
+    "./parse-destinations": {
+      "default": "./lib/parse-destinations.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "cordis.patch.yml",
+    "README.md",
+    "scripts"
+  ],
+  "scripts": {
+    "test": "node test/ring-buffer.test.mjs && node test/classify.test.mjs && node test/destinations.test.mjs && node test/find-projects.test.mjs && node test/list-schemes.test.mjs && node test/client-interaction.test.mjs && node test/device-channel.test.mjs && node test/legacy-launch.test.mjs && node test/dependencies.test.mjs",
+    "link-host": "node scripts/link-host.mjs",
+    "test:mount": "node test/host-mount.test.mjs",
+    "test:live": "node test/live-gemoy.mjs"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-renderer",
+        "@deepseek-ai/dsh-client-ui-layout",
+        "@deepseek-ai/dsh-client-ui-conversation"
+      ],
+      "platform": "web"
+    }
+  },
+  "dshHostRuntime": {
+    "server": {
+      "requiredServices": [
+        "tools"
+      ],
+      "optionalServices": [
+        "webServer",
+        "connection"
+      ],
+      "requiredPackages": {
+        "@deepseek-ai/dsh-tools": "*"
+      }
+    },
+    "note": "Inert documentation: host packages are intentionally absent from dependencies and peerDependencies; the loader resolves them for a mounted plugin row."
+  }
+}

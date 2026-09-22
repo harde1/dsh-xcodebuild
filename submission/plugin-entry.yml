@@ -1,0 +1,20 @@
+# Entry for https://github.com/awesome-dsh-plugin/awesome-dsh-plugin
+#
+# Copy this file into a clone of that repository as
+#   data/plugins/harde1__dsh-xcodebuild.yml
+# The `url` and `name` below are already filled in for this repository and must
+# match it exactly — CI fetches package.json from that URL to check for the
+# `dsh.bundle` manifest.
+#
+# This one file is the whole submission. Do not edit either README in that
+# repository: both are generated from data/plugins/*.yml after the PR merges.
+
+url: https://github.com/harde1/dsh-xcodebuild
+name: harde1/dsh-xcodebuild
+category: dev
+description:
+  # No ": " (colon + space) in this value, so it needs no quotes. If you rewrite
+  # it and introduce one, wrap the whole value in single quotes or YAML reads it
+  # as a nested key and the parser fails.
+  en: Builds, tests, archives and runs Xcode projects and workspaces, with a live filterable build log, scheme and destination pickers, and simulator or device log streaming. macOS only.
+  zh: 在 harness 中编译、测试、归档并运行 Xcode 工程与工作区，带实时可过滤的构建日志、scheme 与目标设备选择，以及模拟器或真机日志流。仅限 macOS。

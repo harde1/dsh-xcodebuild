@@ -1,0 +1,13 @@
+# The runtime aliases @deepseek-ai/* host packages for a mounted plugin row, so
+# they are deliberately not dependencies. `npm run test:mount` needs one of them
+# resolvable locally; link the deployment's copy rather than installing a second
+# one, which would be a different module instance than the running host's.
+node_modules/
+
+# Scratch output from a live run.
+.dsh-xcodebuild/
+*.log
+
+# A workspace-local browser-automation toolchain, used to drive the DSH GUI and
+# check that the panel actually renders. Never part of the plugin.
+.tools/
