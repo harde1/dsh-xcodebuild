@@ -295,7 +295,7 @@ section('without better-sidebar')
   check(calls.some((call) => call.method === 'state'), 'the header button read state, so the panel opens onto known facts')
   check(container.querySelector('.xcb-panel') === null, 'the panel starts closed')
 
-  section('click "Xcode"')
+  section('click "XcBuild"')
   const button = container.querySelector('.xcb-trigger')
   await act(async () => {
     button.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))

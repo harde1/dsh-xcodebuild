@@ -16,41 +16,55 @@ Upstream rules: <https://github.com/awesome-dsh-plugin/awesome-dsh-plugin/blob/m
 | `LICENSE` file for the MIT declared in `package.json` | ✅ added, copyright chuckliang |
 | `node_modules/` not committed | ✅ already in `.gitignore` |
 | Public repository | ✅ `https://github.com/harde1/dsh-xcodebuild` |
+| `dsh-plugin` topic on the repository | ✅ added 2026-09-23, along with a repository description |
 
 ## What only you can do
 
 1. ~~**Create the GitHub repository and push.**~~ **Done** — pushed to
    `git@github.com:harde1/dsh-xcodebuild.git` (`main`).
-2. **Wait out the 1-day bar.** CI rejects a repo created less than a day before the PR. This is
-   automated and is not a judgement about the plugin — it filters out repos created minutes before
-   submitting. Resubmitting later costs nothing.
-3. **Add the `dsh-plugin` topic** to the repository (`Settings → Topics`), or via
-   `gh repo edit harde1/dsh-xcodebuild --add-topic dsh-plugin`. CI does not check this; the list's
-   own tooling does.
+2. **Wait out the 1-day bar.** CI rejects a repo created less than a day before the PR. The repository
+   was created 2026-09-22 22:26 CST, so the bar clears **2026-09-23 22:26 CST**. The gate says so in
+   its own message, and `regate.yml` re-runs it every six hours on exactly that wording, so a PR
+   opened early turns green by itself rather than needing a resubmission.
+3. ~~**Add the `dsh-plugin` topic**~~ **Done** — added 2026-09-23 together with a repository
+   description. CI does not check the topic; the list's own tooling does.
 4. **Keep the description honest.** See the note under *What gets reviewed* below.
 
 ## The steps
 
-The repository already exists and is pushed, so only steps 2 and 3 remain:
+The repository exists, is pushed, and carries the topic. What remains is the PR itself, which is
+prepared on a fork and opens by itself the moment the age bar clears:
 
 ```sh
-# 1. Already done — https://github.com/harde1/dsh-xcodebuild
-#    git init -b main && git add -A && git commit
-#    git remote add origin git@github.com:harde1/dsh-xcodebuild.git
-#    git push -u origin main
+# Done — topic and description
+gh repo edit harde1/dsh-xcodebuild --add-topic dsh-plugin --description "…"
 
-# 2. Add the topic (or use Settings → Topics)
-gh repo edit harde1/dsh-xcodebuild --add-topic dsh-plugin
-
-# 3. Fork and clone the list, add the entry, open the PR
-gh repo fork awesome-dsh-plugin/awesome-dsh-plugin --clone
+# Done — the entry, on a branch of a fork. No --clone here: this working clone keeps
+# `origin` = upstream, which is what `gh pr create --head harde1:<branch>` compares against.
+gh repo fork awesome-dsh-plugin/awesome-dsh-plugin --clone=false
+git clone --depth 1 https://github.com/awesome-dsh-plugin/awesome-dsh-plugin.git
 cd awesome-dsh-plugin
-cp /path/to/this/repo/submission/plugin-entry.yml data/plugins/harde1__dsh-xcodebuild.yml
 git checkout -b add-dsh-xcodebuild
+cp /path/to/this/repo/submission/plugin-entry.yml data/plugins/harde1__dsh-xcodebuild.yml
 git add data/plugins/harde1__dsh-xcodebuild.yml
 git commit -m "Add harde1/dsh-xcodebuild"
-gh pr create --fill
+git remote add fork git@github.com:harde1/awesome-dsh-plugin.git
+git push -u fork add-dsh-xcodebuild
+
+# Scheduled for 22:27 CST, one minute after the bar clears
+gh pr create --repo awesome-dsh-plugin/awesome-dsh-plugin \
+  --base main --head harde1:add-dsh-xcodebuild \
+  --title "Add harde1/dsh-xcodebuild" --body-file pr-body.md
 ```
+
+The entry was verified by running the upstream's own checks against it before pushing:
+
+- `node scripts/generate-readme.mjs` emits exactly **one line in each README**, under `dev`, and the
+  diff is `+1` per README and nothing else.
+- `npx awesome-lint` **exits 0** with nothing flagged on that line (the 93 warnings it reports are
+  pre-existing, `⚠` severity, and spread across the whole list).
+- The entry file is `+1/-0`: no other entry is touched, and neither generated README is committed —
+  upstream regenerates both on `main` after the merge.
 
 The filename and the entry must agree: repository `harde1/dsh-xcodebuild` takes
 `data/plugins/harde1__dsh-xcodebuild.yml`, with `url` and `name` both
@@ -129,12 +143,34 @@ other repository can only rot unnoticed.
 A green CI run is the precondition, not the decision. A maintainer reads this repository. The
 description in the entry is treated as a claim about the code and is checked against it:
 
-- "Builds, tests, archives and runs Xcode projects and workspaces" — the actions are Build,
+- "Builds, tests, archives and runs an Xcode project or workspace" — the actions are Build,
   Build & Run, Test, Clean and Archive; `xcode_project` detects both `.xcodeproj` and `.xcworkspace`.
-- "a live filterable build log" — the log panel, filtered on the host.
-- "scheme and destination pickers" — both, plus configuration, read from the project itself.
-- "simulator or device log streaming" — `xcode_device_log`, over CoreDevice or the classic channel.
+- "on iOS or macOS" — `xcode_run` takes a simulator, a USB device, or My Mac.
+- "through xcodebuild" — the tools drive the CLI itself, not Xcode's MCP bridge.
+- "a live filterable build log" — the log panel, filtered on the host while the build is still writing.
+- "scheme and destination pickers read from the project" — both, plus configuration.
+- "log streaming for simulators and USB devices" — `xcode_device_log`, over CoreDevice or the classic
+  channel.
+- "including iOS 16 and earlier over libimobiledevice" — the classic channel is a different code path
+  from CoreDevice, with three separate Homebrew formulae behind it.
+- "whose app logs stay readable while the device is locked" — read out of `Documents/PPCrashLog/` in
+  the app's container, which survives a crash and needs no unlock.
 - "macOS only" — `xcodebuild` exists nowhere else.
 
 Nothing in the entry claims a number, so there is no count to keep in sync. If that changes, the
 number becomes a claim and must match the code.
+
+### The two entries it has to be distinguished from
+
+The list already carries `ZSeven-W/dsh-ios` and `jihongboo/dsh-apple-mode`, so the description leads
+with what is different rather than with the category:
+
+| | `ZSeven-W/dsh-ios` | `jihongboo/dsh-apple-mode` | this plugin |
+| --- | --- | --- | --- |
+| channel | simulator UI driving (accessibility / OCR) | Xcode's own MCP bridge | the `xcodebuild` CLI |
+| focus | touching the screen | Xcode integration | the build/test/run/**log** loop |
+| devices | simulator + USB | — | simulator + USB, CoreDevice **and** libimobiledevice |
+
+Upstream's rule is that overlap is a tiebreaker rather than a bar — "the rule is not first-come; the
+rule is whichever is better" — but a submission that reads like a fourth iOS plugin invites the
+question, so the entry answers it in its own first clause.
