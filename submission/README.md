@@ -12,7 +12,7 @@ Upstream rules: <https://github.com/awesome-dsh-plugin/awesome-dsh-plugin/blob/m
 | `dsh.bundle` manifest in `package.json` | ✅ `{"patch": "./cordis.patch.yml"}` — this is what CI checks first |
 | `cordis.patch.yml` at the root, inserting the row | ✅ `id: dsh-xcodebuild`, `name: dsh-xcodebuild` |
 | `dsh.client` for browser UI | ✅ `platform: web` |
-| Real, working code rather than a placeholder | ✅ 6 tools, 2876 checks across 10 test files |
+| Real, working code rather than a placeholder | ✅ 6 tools, 3361 checks across 18 test files |
 | `LICENSE` file for the MIT declared in `package.json` | ✅ added, copyright chuckliang |
 | `node_modules/` not committed | ✅ already in `.gitignore` |
 | Public repository | ✅ `https://github.com/harde1/dsh-xcodebuild` |

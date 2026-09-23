@@ -15,6 +15,7 @@
 //
 // Run: node test/client-interaction.test.mjs
 
+import { KINDS } from '../lib/classify.js'
 import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
@@ -66,6 +67,14 @@ globalThis.Node = dom.window.Node
 globalThis.MouseEvent = dom.window.MouseEvent
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
 
+// React keeps an IE-era fallback for watching a text field's value, and that path calls
+// `attachEvent`, which jsdom does not implement. Nothing reached it before because this
+// suite never focused a field; the find bar focuses its box, which is exactly what is
+// under test. Stubbed here rather than avoided in the client — a browser has the `input`
+// event, so React never takes this path there.
+dom.window.HTMLInputElement.prototype.attachEvent = () => {}
+dom.window.HTMLInputElement.prototype.detachEvent = () => {}
+
 /** Answer the panel's routes from a handler map, and record what it asked for. */
 function serve(handlers) {
   const calls = []
@@ -79,7 +88,9 @@ function serve(handlers) {
     if (handler === undefined) {
       return { ok: false, status: 404, async text() { return JSON.stringify({ message: `no route ${method}` }) } }
     }
-    return { ok: true, status: 200, async text() { return JSON.stringify(handler(body)) } }
+    // A handler may return a promise: the destinations test answers late on purpose, so
+    // that it can look at the panel while `xcodebuild -showdestinations` is still running.
+    return { ok: true, status: 200, async text() { return JSON.stringify(await handler(body)) } }
   }
   return calls
 }
@@ -685,6 +696,600 @@ section('clear empties the output log, not the filter')
 }
 
 // =========================================================================
+// The level buttons must reach every kind the classifier can produce.
+// =========================================================================
+//
+// A kind with no button is a line the user can never show again once it is off, and the
+// classifier keeps gaining kinds — xcbeautify's `[x]` / `[!]` / `Build Succeeded`
+// vocabulary was one such addition. So this walks the buttons instead of restating which
+// level owns which kind: it watches what each button hides and then checks that between
+// them they cover every kind exactly once.
+
+section('every kind the classifier produces is reachable from a level button')
+{
+  // The vocabulary comes from the classifier itself, so adding a kind there — the way
+  // xcbeautify's markers were added — fails this section until a level shows it.
+  const allLines = KINDS.map((kind, index) => ({ n: index + 1, k: kind, t: `${kind} line` }))
+  serve({
+    state: () => ({ workspace: '/project/levels', activeRunId: 'run-levels', runs: [] }),
+    // The panel's cursor starts at 0, so the whole set arrives in one poll and nothing
+    // is answered twice.
+    poll: (body) => ({
+      missing: false,
+      lines: body.from === 0 ? allLines : [],
+      next: body.from === 0 ? allLines.length + 1 : body.from,
+      status: 'running',
+      exitCode: null,
+      warningCount: 0,
+      errors: [],
+      durationMs: 0,
+    }),
+  })
+
+  const instance = mount({})
+  const overlay = instance.components.get('dsh-xcodebuild-panel')
+  const toggle = instance.components.get('dsh-xcodebuild-toggle')
+  const { container } = await render([
+    React.createElement(overlay.component, { key: 'overlay' }),
+    React.createElement(toggle.component, { key: 'toggle', sessionId: 'session-levels' }),
+  ])
+  await act(async () => {
+    container.querySelector('.xcb-trigger').dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+  })
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 700)) })
+
+  const shown = () => Array.from(container.querySelectorAll('.xcb-line'))
+    .map((node) => /xcb-k-(\w+)/.exec(node.className)?.[1] ?? '?')
+    .sort()
+  const sorted = (list) => [...list].sort()
+  const button = (label) => Array.from(container.querySelectorAll('.xcb-btn'))
+    .find((node) => node.textContent === label)
+  const click = async (node) => {
+    await act(async () => {
+      propsOf(node).onClick()
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    })
+  }
+
+  equal(shown(), sorted(KINDS), 'every kind is on screen to begin with')
+
+  const levelButtons = Array.from(container.querySelectorAll('.xcb-btn[data-level]'))
+  equal(levelButtons.map((node) => node.textContent), ['verbose', 'info', 'warning', 'error'],
+    'the row is the four levels a system log has, lowest first')
+  equal(levelButtons.map((node) => node.dataset.level), ['verbose', 'info', 'warning', 'error'],
+    'and each button is the level it names')
+
+  const owner = new Map()
+  for (const node of levelButtons) {
+    const label = node.textContent
+    const before = shown()
+    await click(node)
+    const hidden = before.filter((kind) => !shown().includes(kind))
+    check(hidden.length > 0, `clicking ${label} hides at least one kind of line`)
+    for (const kind of hidden) {
+      check(!owner.has(kind), `${kind} belongs to exactly one level (${label} and ${owner.get(kind)})`)
+      owner.set(kind, label)
+    }
+    await click(node)
+    equal(shown(), before, `${label} puts back exactly what it hid`)
+  }
+  equal(sorted(owner.keys()), sorted(KINDS),
+    'and between them the level buttons reach every kind the classifier produces')
+
+  await click(button('Problems'))
+  // The compiler's notes belong to the warning level, so narrowing to the diagnostics
+  // keeps them: a note without the warning it explains is not a solvable problem.
+  equal(shown(), sorted(['error', 'warning', 'note']), 'Problems keeps the two diagnostics and drops the rest')
+}
+
+// =========================================================================
+// Searching the log is not filtering it.
+// =========================================================================
+//
+// A filter changes which lines exist as far as the panel is concerned, and can reach
+// lines the browser no longer holds by asking the host. The search does the opposite: it
+// hides nothing, marks the hits inside the lines already on screen, and says which hit
+// you are on so that "go to the next one" is a place you can trust.
+
+section('searching the log marks hits without hiding anything')
+{
+  const lines = [
+    { n: 1, k: 'plain', t: 'first line' },
+    { n: 2, k: 'task', t: 'Compiling GemoyHit.swift' },
+    { n: 3, k: 'warning', t: 'warning: unused variable in hitPath' },
+    { n: 4, k: 'plain', t: 'nothing to see' },
+    { n: 5, k: 'error', t: 'error: cannot find Hit in scope' },
+    { n: 6, k: 'plain', t: 'done' },
+  ]
+  const calls = serve({
+    state: () => ({ workspace: '/project/find', activeRunId: 'run-find', runs: [] }),
+    poll: (body) => ({
+      missing: false,
+      lines: body.from === 0 ? lines : [],
+      next: body.from === 0 ? lines.length + 1 : body.from,
+      status: 'running',
+      exitCode: null,
+      warningCount: 0,
+      errors: [],
+      durationMs: 0,
+    }),
+  })
+
+  const instance = mount({})
+  const overlay = instance.components.get('dsh-xcodebuild-panel')
+  const toggle = instance.components.get('dsh-xcodebuild-toggle')
+  const { container } = await render([
+    React.createElement(overlay.component, { key: 'overlay' }),
+    React.createElement(toggle.component, { key: 'toggle', sessionId: 'session-find' }),
+  ])
+  await act(async () => {
+    container.querySelector('.xcb-trigger').dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+  })
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 700)) })
+
+  /** The find bar is hidden until ⌘F, so every search test starts by asking for it. */
+  const openFind = async () => {
+    await act(async () => {
+      document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'f', metaKey: true, bubbles: true }))
+      await new Promise((resolve) => setTimeout(resolve, 30))
+    })
+  }
+
+  check(container.querySelector('.xcb-input.find') === null,
+    'the find bar is not on screen to begin with: it takes no space until it is asked for')
+  check(container.querySelector('.xcb-find') === null, 'and neither is its row')
+  await openFind()
+  // Looked up every time: closing the bar unmounts the box, so a captured element goes
+  // stale the moment it is reopened.
+  const field = () => container.querySelector('.xcb-input.find')
+  check(field() !== null, 'the panel has a search box, separate from the filter box')
+  check(document.activeElement === field(), 'and ⌘F puts the caret in it, ready to type')
+
+  const rows = () => Array.from(container.querySelectorAll('.xcb-line'))
+  const rowFor = (number) => rows().find((node) => node.querySelector('.xcb-num')?.textContent === String(number))
+  const nowRow = () => rows().find((node) => node.querySelector('.xcb-hit.now') !== null)
+  const counter = () => container.querySelector('.xcb-findcount')?.textContent ?? ''
+  const nav = (label) => Array.from(container.querySelectorAll('.xcb-btn.find-nav'))
+    .find((node) => node.textContent === label)
+  const type = async (text) => {
+    await act(async () => {
+      propsOf(field()).onChange({ target: { value: text } })
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    })
+  }
+  const step = async (label) => {
+    await act(async () => {
+      propsOf(nav(label)).onClick()
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    })
+  }
+  const key = async (event) => {
+    await act(async () => {
+      propsOf(field()).onKeyDown({ preventDefault: () => {}, ...event })
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    })
+  }
+
+  await type('hit')
+  equal(counter(), '1 / 3', 'the count appears as you type, and the first hit is current')
+  equal(rows().length, lines.length, 'nothing is hidden: the search is not a filter')
+  equal(container.querySelectorAll('.xcb-hit').length, 3, 'every occurrence is marked')
+  equal(nowRow()?.querySelector('.xcb-num')?.textContent, '2',
+    'and the current hit is marked as the current one, in the first matching line')
+  equal(propsOf(nav('↑')).disabled, false, 'the arrows are live while there are hits')
+  equal(propsOf(nav('↓')).disabled, false, 'both of them')
+  check(calls.filter((call) => call.method === 'search').length === 0,
+    'typing asks the host for nothing: the search runs over the lines already on screen')
+
+  await step('↓')
+  equal(counter(), '2 / 3', 'the next arrow moves to the next hit')
+  equal(nowRow()?.querySelector('.xcb-num')?.textContent, '3', 'and the marks follow it')
+  await step('↓')
+  equal(counter(), '3 / 3', 'and again')
+  await step('↓')
+  equal(counter(), '1 / 3', 'past the last hit it wraps, so repeated presses walk them all')
+  await step('↑')
+  equal(counter(), '3 / 3', 'and back up')
+
+  await key({ key: 'Enter' })
+  equal(counter(), '1 / 3', 'Enter goes forward too')
+  await key({ key: 'Enter', shiftKey: true })
+  equal(counter(), '3 / 3', 'and Shift+Enter goes back')
+
+  equal(rows().filter((node) => node.querySelector('.xcb-hit.now') !== null).length, 1,
+    'exactly one line is drawn as the current hit')
+  equal(rowFor(5)?.querySelectorAll('.xcb-hit.now').length, 1,
+    'and it is the line the count names')
+
+  await type('HIT')
+  equal(counter(), '1 / 3', 'the search ignores case, as finding a log line by name must')
+
+  await type('Hit.swift')
+  equal(counter(), '1 / 1', 'the needle is literal text, not a pattern')
+
+  await type('(')
+  equal(counter(), 'no hits', 'a lone bracket is looked for rather than compiled')
+  equal(propsOf(nav('↑')).disabled, true, 'with no hits the arrows are greyed out')
+  equal(propsOf(nav('↓')).disabled, true, 'both of them')
+  equal(container.querySelectorAll('.xcb-hit').length, 0, 'and nothing is marked')
+
+  await type('')
+  check(field() !== null, 'emptying the box takes the count and the marks, not the bar')
+  equal(container.querySelectorAll('.xcb-hit').length, 0, 'the marks are gone')
+
+  // Esc is the same way out, from a box that still has something in it.
+  await openFind()
+  await type('hit')
+  check(container.querySelectorAll('.xcb-hit').length > 0, 'there are marks to clear')
+  await key({ key: 'Escape' })
+  check(field() === null, 'Esc puts the bar away in one press')
+  equal(container.querySelectorAll('.xcb-hit').length, 0, 'and drops the search with it')
+
+  // Emptying the box by hand does NOT close it: the judgement is made on blur, because a
+  // keystroke is not the user saying they are done — it is often them deleting a character
+  // to retype it. The bar stays, empty and ready.
+  await openFind()
+  equal(field()?.value, '', 'reopening starts empty, not with the last query')
+  await type('hit')
+  await type('hi')
+  check(field() !== null, 'a shorter query keeps the bar open')
+  await type('')
+  check(field() !== null, 'emptying the box leaves the bar open while it still has the caret')
+  equal(container.querySelectorAll('.xcb-hit').length, 0, 'with the marks gone')
+  check(container.querySelector('.xcb-findcount') === null, 'and the count with them')
+  await type('again')
+  equal(counter(), 'no hits', 'and it is still there to be typed into')
+
+  // Losing focus is the moment it is judged: empty goes, filled stays.
+  await type('hit')
+  await act(async () => {
+    propsOf(field()).onBlur()
+    await new Promise((resolve) => setTimeout(resolve, 20))
+  })
+  check(field() !== null, 'clicking away with a query in the box leaves the bar up')
+  equal(field()?.value, 'hit', 'and leaves the query in it')
+  await type('')
+  check(field() !== null, 'emptying it while the caret is still there keeps it')
+  await act(async () => {
+    propsOf(field()).onBlur()
+    await new Promise((resolve) => setTimeout(resolve, 20))
+  })
+  check(field() === null, 'and clicking away from the empty box puts it away')
+  await openFind()
+  await act(async () => {
+    propsOf(field()).onBlur()
+    await new Promise((resolve) => setTimeout(resolve, 20))
+  })
+  check(field() === null, 'clicking away from a box that was never typed into puts it away too')
+
+  // The panel can be on screen in more than one seat at once — docked and floating are two
+  // mountings of the same component over one store — so ⌘F opens this box in all of them
+  // and each one focuses its own input. The seats that lose focus see a blur, and that
+  // hand-off is not the user leaving the box: reading it as one would put the bar away the
+  // instant it was asked for.
+  const otherSeat = () => {
+    const node = dom.window.document.createElement('input')
+    node.className = 'xcb-input find'
+    return node
+  }
+  await openFind()
+  await act(async () => {
+    propsOf(field()).onBlur({ relatedTarget: otherSeat() })
+    await new Promise((resolve) => setTimeout(resolve, 20))
+  })
+  check(field() !== null, 'focus handing over to the same box in another seat leaves the bar alone')
+  await act(async () => {
+    propsOf(field()).onBlur({ relatedTarget: container.querySelector('.xcb-input.filter') })
+    await new Promise((resolve) => setTimeout(resolve, 20))
+  })
+  check(field() === null, 'but an empty box left for the filter box is still put away')
+
+  // A second ⌘F while it is open is "find something else": focus and select.
+  await openFind()
+  await type('hit')
+  await act(async () => {
+    document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'f', ctrlKey: true, bubbles: true }))
+    await new Promise((resolve) => setTimeout(resolve, 30))
+  })
+  const again = container.querySelector('.xcb-input.find')
+  check(document.activeElement === again, '⌘F again returns the caret to the box')
+  equal([again.selectionStart, again.selectionEnd], [0, again.value.length],
+    'with the existing query selected, so typing replaces it')
+  equal(again.value, 'hit', 'and nothing about the query was lost on the way')
+
+  // ⌥⌘F is somebody else's binding, so it must not be swallowed.
+  await key({ key: 'Escape' })
+  check(field() === null, 'the bar is away again')
+  await act(async () => {
+    document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'f', metaKey: true, altKey: true, bubbles: true }))
+    await new Promise((resolve) => setTimeout(resolve, 30))
+  })
+  check(field() === null, '⌥⌘F is left to whatever else wants it')
+}
+
+section('moving to a hit takes the view there')
+{
+  const lines = [
+    { n: 1, k: 'plain', t: 'heading' },
+    { n: 2, k: 'plain', t: 'alpha' },
+    { n: 3, k: 'plain', t: 'the needle' },
+    { n: 4, k: 'plain', t: 'beta' },
+  ]
+  serve({
+    state: () => ({ workspace: '/project/scroll', activeRunId: 'run-scroll', runs: [] }),
+    poll: (body) => ({
+      missing: false,
+      lines: body.from === 0 ? lines : [],
+      next: body.from === 0 ? lines.length + 1 : body.from,
+      status: 'running',
+      exitCode: null,
+      warningCount: 0,
+      errors: [],
+      durationMs: 0,
+    }),
+  })
+
+  const instance = mount({})
+  const overlay = instance.components.get('dsh-xcodebuild-panel')
+  const toggle = instance.components.get('dsh-xcodebuild-toggle')
+  const { container } = await render([
+    React.createElement(overlay.component, { key: 'overlay' }),
+    React.createElement(toggle.component, { key: 'toggle', sessionId: 'session-scroll' }),
+  ])
+  await act(async () => {
+    container.querySelector('.xcb-trigger').dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+  })
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 700)) })
+
+  const log = container.querySelector('.xcb-log')
+  const box = fakeScrollMetrics(log, { height: 4000, view: 200 })
+  // Rows far enough apart that "centre it" is a number this can check.
+  Array.from(container.querySelectorAll('.xcb-line')).forEach((node, index) => {
+    Object.defineProperty(node, 'offsetTop', { configurable: true, get: () => index * 200 })
+  })
+
+  await act(async () => {
+    document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'f', metaKey: true, bubbles: true }))
+    await new Promise((resolve) => setTimeout(resolve, 30))
+  })
+  const find = container.querySelector('.xcb-input.find')
+  const nav = (label) => Array.from(container.querySelectorAll('.xcb-btn.find-nav'))
+    .find((node) => node.textContent === label)
+  await act(async () => {
+    propsOf(find).onChange({ target: { value: 'needle' } })
+    await new Promise((resolve) => setTimeout(resolve, 20))
+  })
+  const parked = box.top
+  check(parked > 0, 'the log starts at the tail, which the fake metrics can see')
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)) })
+  equal(box.top, parked, 'typing alone does not move the log around under the caret')
+
+  await act(async () => {
+    propsOf(nav('↓')).onClick()
+    await new Promise((resolve) => setTimeout(resolve, 20))
+  })
+  // Row 3 of 4 is 400px down; half the 200px viewport above it puts it in the middle.
+  equal(box.top, 300, 'the arrow scrolls the hit into view')
+  // The "back to the tail" button appears exactly when the view is no longer following
+  // it, which is the other half of "the arrow took the view somewhere".
+  const jump = container.querySelector('.xcb-jump')
+  equal(jump?.textContent, '↓ Latest', 'and parking on a hit stops the view following the tail')
+}
+
+section('a hit further back than the render cap is still reachable')
+{
+  // The log view renders the tail. Without the window following the current hit, "next"
+  // would walk into lines that are not in the DOM and quietly do nothing.
+  const many = []
+  for (let n = 1; n <= 2600; n += 1) {
+    many.push({ n, k: 'plain', t: n === 10 ? 'the needle is back here' : `line ${String(n)}` })
+  }
+  serve({
+    state: () => ({ workspace: '/project/deep', activeRunId: 'run-deep', runs: [] }),
+    poll: (body) => ({
+      missing: false,
+      lines: body.from === 0 ? many : [],
+      next: body.from === 0 ? many.length + 1 : body.from,
+      status: 'running',
+      exitCode: null,
+      warningCount: 0,
+      errors: [],
+      durationMs: 0,
+    }),
+  })
+
+  const instance = mount({})
+  const overlay = instance.components.get('dsh-xcodebuild-panel')
+  const toggle = instance.components.get('dsh-xcodebuild-toggle')
+  const { container } = await render([
+    React.createElement(overlay.component, { key: 'overlay' }),
+    React.createElement(toggle.component, { key: 'toggle', sessionId: 'session-deep' }),
+  ])
+  await act(async () => {
+    container.querySelector('.xcb-trigger').dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+  })
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 700)) })
+
+  const numbers = () => Array.from(container.querySelectorAll('.xcb-num')).map((node) => Number(node.textContent))
+  check(!numbers().includes(10), 'line 10 starts outside the window, which shows the tail')
+
+  await act(async () => {
+    document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'f', metaKey: true, bubbles: true }))
+    await new Promise((resolve) => setTimeout(resolve, 30))
+  })
+  const find = container.querySelector('.xcb-input.find')
+  await act(async () => {
+    propsOf(find).onChange({ target: { value: 'needle' } })
+    await new Promise((resolve) => setTimeout(resolve, 50))
+  })
+  equal(container.querySelector('.xcb-findcount')?.textContent, '1 / 1', 'the hit is counted')
+  const current = container.querySelector('.xcb-line-current .xcb-num')
+  check(current !== null && current.textContent === '10',
+    'and the window moves so that the hit is rendered, not off the end of the DOM')
+}
+
+// =========================================================================
+// The two boxes remember what they were given before.
+// =========================================================================
+//
+// ↑/↓ walks each box's own history, newest first, the way a shell does it: ↑ is back in
+// time, ↓ is forward, and ↓ past the newest entry puts back the text that was being typed
+// when the walk started. One history per box — a filter and a search are different
+// questions, and neither should offer the other's answers.
+
+section('↑ and ↓ walk what each box was given before')
+{
+  const lines = [
+    { n: 1, k: 'plain', t: 'alpha one' },
+    { n: 2, k: 'plain', t: 'alpha two' },
+    { n: 3, k: 'plain', t: 'beta three' },
+  ]
+  const calls = serve({
+    state: () => ({ workspace: '/project/history', activeRunId: 'run-history', runs: [] }),
+    poll: (body) => ({
+      missing: false,
+      lines: body.from === 0 ? lines : [],
+      next: body.from === 0 ? lines.length + 1 : body.from,
+      status: 'running',
+      exitCode: null,
+      warningCount: 0,
+      errors: [],
+      durationMs: 0,
+    }),
+    search: (body) => ({ lines: body.pattern === '' ? [] : lines, total: lines.length, truncated: false, regex: false }),
+  })
+
+  const instance = mount({})
+  const overlay = instance.components.get('dsh-xcodebuild-panel')
+  const toggle = instance.components.get('dsh-xcodebuild-toggle')
+  const { container } = await render([
+    React.createElement(overlay.component, { key: 'overlay' }),
+    React.createElement(toggle.component, { key: 'toggle', sessionId: 'session-history' }),
+  ])
+  await act(async () => {
+    container.querySelector('.xcb-trigger').dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+  })
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 700)) })
+
+  const filterField = () => container.querySelector('.xcb-input.filter')
+  const findField = () => container.querySelector('.xcb-input.find')
+  const counter = () => container.querySelector('.xcb-findcount')?.textContent ?? ''
+  const typeInto = async (node, value) => {
+    await act(async () => {
+      propsOf(node).onChange({ target: { value: value } })
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    })
+  }
+  const press = async (node, event) => {
+    await act(async () => {
+      // Shift is spelled out because a browser always sends it: the box uses it to tell
+      // ↑ alone (history) from Shift+↑ (the previous hit).
+      propsOf(node).onKeyDown({ preventDefault: () => {}, currentTarget: node, shiftKey: false, ...event })
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    })
+  }
+  const openFind = async () => {
+    await act(async () => {
+      document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'f', metaKey: true, bubbles: true }))
+      await new Promise((resolve) => setTimeout(resolve, 30))
+    })
+  }
+
+  // Nothing has been given to either box yet, so ↑ has nothing to offer and must not
+  // quietly blank a half-written value.
+  await typeInto(filterField(), 'half-written')
+  await press(filterField(), { key: 'ArrowUp' })
+  equal(filterField().value, 'half-written', '↑ with no history leaves what is in the box alone')
+
+  await press(filterField(), { key: 'Enter' })
+  await typeInto(filterField(), 'bar')
+  await act(async () => {
+    propsOf(filterField()).onBlur()
+    await new Promise((resolve) => setTimeout(resolve, 20))
+  })
+  await typeInto(filterField(), 'bar')
+  await act(async () => {
+    propsOf(filterField()).onBlur()
+    await new Promise((resolve) => setTimeout(resolve, 20))
+  })
+  // A draft that was never committed is not history, which is what makes it the thing ↓
+  // can put back.
+  await typeInto(filterField(), 'draft')
+  // Committing is what asks the host to search, and it does so on the panel's own clock.
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 700)) })
+  const searchesBefore = calls.filter((call) => call.method === 'search').length
+
+  await press(filterField(), { key: 'ArrowUp' })
+  equal(filterField().value, 'bar', '↑ brings back the filter committed last')
+  await press(filterField(), { key: 'ArrowUp' })
+  equal(filterField().value, 'half-written', 'and again for the one before it')
+  await press(filterField(), { key: 'ArrowUp' })
+  equal(filterField().value, 'half-written', 'at the oldest entry it stays, rather than wrapping')
+  await press(filterField(), { key: 'ArrowDown' })
+  equal(filterField().value, 'bar', '↓ walks forward again')
+  await press(filterField(), { key: 'ArrowDown' })
+  equal(filterField().value, 'draft', 'and past the newest one it puts back the draft')
+  await press(filterField(), { key: 'ArrowDown' })
+  equal(filterField().value, 'draft', 'with nothing newer to walk to')
+  // The second `bar` was committed twice: one entry, or ↑ would need two presses to pass it.
+  await press(filterField(), { key: 'ArrowUp' })
+  await press(filterField(), { key: 'ArrowUp' })
+  equal(filterField().value, 'half-written', 'a value committed twice is remembered once')
+  equal(calls.filter((call) => call.method === 'search').length, searchesBefore,
+    'walking the history issues no search of its own')
+
+  // The search box keeps its own history, and recalling a query re-counts it without
+  // moving the view.
+  const log = container.querySelector('.xcb-log')
+  const box = fakeScrollMetrics(log, { height: 4000, view: 200 })
+  await openFind()
+  await typeInto(findField(), 'alpha')
+  equal(counter(), '1 / 2', 'the first query finds its two lines')
+  await press(findField(), { key: 'Enter' })
+  await press(findField(), { key: 'Escape' })
+  check(findField() === null, 'and Esc closes the bar with the query remembered')
+
+  await openFind()
+  await typeInto(findField(), 'beta')
+  equal(counter(), '1 / 1', 'a second query finds its one line')
+  const parked = box.top
+  // 'beta' is still being typed, so it is not history yet: ↑ offers the last query that
+  // was finished with, and ↓ is the way back to the half-written one.
+  await press(findField(), { key: 'ArrowUp' })
+  equal(findField().value, 'alpha', '↑ in the search box brings back the last finished search, not the filter')
+  equal(counter(), '1 / 2', 'and the count follows the recalled query')
+  equal(box.top, parked, 'recalling a query does not move the log')
+  await press(findField(), { key: 'ArrowDown' })
+  equal(findField().value, 'beta', 'and ↓ puts back the query that was still being typed')
+
+  // Finishing with it is what adds it: now the history is two deep.
+  await press(findField(), { key: 'Enter' })
+  await typeInto(findField(), 'bet')
+  await press(findField(), { key: 'ArrowUp' })
+  equal(findField().value, 'beta', '↑ now offers the query finished with last')
+  await press(findField(), { key: 'ArrowUp' })
+  equal(findField().value, 'alpha', 'and then the one before it')
+  await press(findField(), { key: 'ArrowUp' })
+  equal(findField().value, 'alpha', 'at the oldest entry it stays, rather than wrapping')
+  await press(findField(), { key: 'ArrowDown' })
+  equal(findField().value, 'beta', '↓ walks forward')
+  await press(findField(), { key: 'ArrowDown' })
+  equal(findField().value, 'bet', 'and past the newest it puts back the draft')
+  await press(findField(), { key: 'ArrowDown' })
+  equal(findField().value, 'bet', 'with nothing newer to walk to')
+  check(findField() !== null, 'the bar stays up through the whole walk')
+
+  // Typing after a recall is the user's own text again, so ↓ has nowhere to walk.
+  await press(findField(), { key: 'ArrowUp' })
+  equal(findField().value, 'beta', '↑ recalls again')
+  await typeInto(findField(), 'bet')
+  await press(findField(), { key: 'ArrowDown' })
+  equal(findField().value, 'bet', 'after typing, ↓ no longer walks the history')
+  await typeInto(findField(), 'gamma')
+  equal(counter(), 'no hits', 'and the box counts what was typed, not what was recalled')
+}
+
+// =========================================================================
 // A panel belongs to one workspace. It must not show another's build.
 // =========================================================================
 
@@ -1141,6 +1746,450 @@ section('opening the panel searches the workspace without being asked')
     'the scheme select is already filled from the store')
 }
 
+// =========================================================================
+// A workspace holding several projects must not ask twice.
+//
+// The bug this pins: the choice was remembered under the PROJECT's own directory,
+// because that is the `root` the host's `detect` reports, while the panel opens on
+// the WORKSPACE and looks the choice up by that. With the project one level down —
+// `/ws/App/App.xcworkspace` — the two keys differ, so the record existed and was
+// never found, and "N projects found — pick one" came back on every open.
+// =========================================================================
+
+section('a project in a subdirectory is remembered for the workspace it was found in')
+{
+  const workspace = '/Users/mac/Project/Multi'
+  const app = `${workspace}/App/App.xcworkspace`
+  const other = `${workspace}/Other/Other.xcodeproj`
+  const multi = (calls) => ({
+    state: () => ({ workspace, activeRunId: null, runs: [] }),
+    projects: () => ({
+      root: workspace,
+      truncated: false,
+      candidates: [
+        { kind: 'workspace', name: 'App', location: app, relative: 'App/App.xcworkspace', depth: 1 },
+        { kind: 'project', name: 'Other', location: other, relative: 'Other/Other.xcodeproj', depth: 1 },
+      ],
+    }),
+    // Exactly what the host answers: `root` is the project's OWN directory, one
+    // level below the workspace that was searched.
+    detect: (body) => ({
+      kind: /\.xcworkspace$/.test(body.path) ? 'workspace' : 'project',
+      root: body.path.slice(0, body.path.lastIndexOf('/')),
+      location: body.path,
+      name: body.path.includes('/App/') ? 'App' : 'Other',
+      schemes: [body.path.includes('/App/') ? 'App' : 'Other'],
+      configurations: ['Debug'],
+      sweetpadDefaults: {},
+    }),
+    destinations: () => ({ destinations: [], recommended: '' }),
+  })
+
+  dom.window.localStorage.clear()
+  const picked = serve(multi())
+  const first = mount({})
+  const { container: one } = await render([
+    React.createElement(first.components.get('dsh-xcodebuild-panel').component, { key: 'overlay' }),
+    React.createElement(first.components.get('dsh-xcodebuild-toggle').component, { key: 'toggle', sessionId: 'session-subdir-pick' }),
+  ])
+  await act(async () => {
+    one.querySelector('.xcb-trigger').dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+  })
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 80)) })
+
+  const candidates = one.querySelectorAll('.xcb-candidate')
+  check(candidates.length === 2, 'two projects under the workspace are offered', `${candidates.length} shown`)
+  await act(async () => {
+    candidates[0].dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+  })
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 40)) })
+  check(picked.filter((call) => call.method === 'detect').length > 0, 'picking a candidate detects it')
+
+  const store = JSON.parse(dom.window.localStorage.getItem('dsh-xcodebuild:selections') ?? '{}')
+  equal(store[workspace]?.location, app,
+    'the choice is on record under the workspace, which is the key the panel reads back')
+  equal(store[`${workspace}/App`]?.location, app,
+    'and under the project directory, where the per-project facts live')
+
+  section('reopening that workspace adopts it instead of asking again')
+  const reopened = serve({
+    ...multi(),
+    // A directory walk is the bug: the answer is already on record.
+    projects: () => { throw new Error('the directory must not be walked once the choice is on record') },
+  })
+  const second = mount({})
+  const { container: two } = await render([
+    React.createElement(second.components.get('dsh-xcodebuild-panel').component, { key: 'overlay' }),
+    React.createElement(second.components.get('dsh-xcodebuild-toggle').component, { key: 'toggle', sessionId: 'session-subdir-pick' }),
+  ])
+  await act(async () => {
+    two.querySelector('.xcb-trigger').dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+  })
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 80)) })
+
+  equal(reopened.filter((call) => call.method === 'projects').length, 0,
+    'reopening the workspace does not walk the directory again')
+  check(two.querySelector('.xcb-picker') === null, 'and does not ask which project, because it already knows')
+  equal(two.querySelector('.xcb-select.scheme')?.value, 'App', 'the remembered project is the one that is set up')
+}
+
+section('a choice on record without its cached description is still adopted')
+{
+  // Older records, and records written by an older panel, hold only `location`.
+  // `adoptCached` needs the description to paint, so it declines — and the search
+  // that follows has to pick the recorded candidate rather than show the picker.
+  const workspace = '/Users/mac/Project/Legacy'
+  dom.window.localStorage.clear()
+  dom.window.localStorage.setItem('dsh-xcodebuild:selections', JSON.stringify({
+    [workspace]: { location: `${workspace}/App/App.xcworkspace` },
+  }))
+  const calls = serve({
+    state: () => ({ workspace, activeRunId: null, runs: [] }),
+    projects: () => ({
+      root: workspace,
+      truncated: false,
+      candidates: [
+        { kind: 'workspace', name: 'App', location: `${workspace}/App/App.xcworkspace`, relative: 'App/App.xcworkspace', depth: 1 },
+        { kind: 'workspace', name: 'Other', location: `${workspace}/Other/Other.xcworkspace`, relative: 'Other/Other.xcworkspace', depth: 1 },
+      ],
+    }),
+    detect: (body) => ({
+      kind: 'workspace',
+      root: body.path.slice(0, body.path.lastIndexOf('/')),
+      location: body.path,
+      name: 'App',
+      schemes: ['App'],
+      configurations: ['Debug'],
+      sweetpadDefaults: {},
+    }),
+    destinations: () => ({ destinations: [], recommended: '' }),
+  })
+  const instance = mount({})
+  const { container } = await render([
+    React.createElement(instance.components.get('dsh-xcodebuild-panel').component, { key: 'overlay' }),
+    React.createElement(instance.components.get('dsh-xcodebuild-toggle').component, { key: 'toggle', sessionId: 'session-legacy-record' }),
+  ])
+  await act(async () => {
+    container.querySelector('.xcb-trigger').dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+  })
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 80)) })
+
+  equal(calls.filter((call) => call.method === 'detect').map((call) => call.body.path),
+    [`${workspace}/App/App.xcworkspace`],
+    'the recorded candidate is the one adopted, without asking')
+  check(container.querySelector('.xcb-picker') === null, 'no picker for a workspace whose choice is on record')
+}
+
+
+// =========================================================================
+// A test bench swaps phones and simulators all day, so the device list has to
+// be refreshed on every look — and `-showdestinations` takes seconds to answer,
+// so waiting for it before drawing anything makes the control feel dead.
+//
+// Both, in that order: the cached list is painted at once and marked with its
+// age, and the command still runs every time.
+// =========================================================================
+
+section('the device list is painted from the cache and refreshed anyway')
+{
+  const workspace = '/Users/mac/Project/Bench'
+  const project = `${workspace}/Bench.xcworkspace`
+  const cachedDevice = {
+    destination: 'id=00008110-000A1B2C3D4E5F60', kind: 'device', name: 'iPhone 12', os: '26.6.2', placeholder: false,
+  }
+  const cachedSimulator = {
+    destination: 'platform=iOS Simulator,id=AAA', kind: 'simulator', name: 'iPhone 16', os: '18.0', placeholder: false,
+  }
+  const freshDevice = {
+    destination: 'id=0000a1b2c3d4e5f60718293a4b5c6d7e8f901234', kind: 'device', name: 'iPhone X', os: '16.7.12', placeholder: false,
+  }
+  dom.window.localStorage.clear()
+  dom.window.localStorage.setItem('dsh-xcodebuild:selections', JSON.stringify({
+    [workspace]: {
+      scheme: 'Bench',
+      configuration: 'Debug',
+      // The phone that was plugged in last time; the cached list still says it is there.
+      destination: cachedDevice.destination,
+      info: {
+        kind: 'workspace', root: workspace, location: project, name: 'Bench',
+        schemes: ['Bench'], configurations: ['Debug'], sweetpadDefaults: {},
+      },
+      destinations: {
+        scheme: 'Bench',
+        list: [cachedDevice, cachedSimulator],
+        recommended: cachedDevice.destination,
+        at: Date.now() - 125000,
+      },
+    },
+  }))
+
+  let answer = null
+  const pending = new Promise((resolve) => { answer = resolve })
+  const calls = serve({
+    state: () => ({ workspace, activeRunId: null, runs: [] }),
+    projects: () => { throw new Error('the stored project must not be searched for again') },
+    detect: (body) => ({
+      kind: 'workspace', root: workspace, location: body.path, name: 'Bench',
+      schemes: ['Bench'], configurations: ['Debug'], sweetpadDefaults: {},
+    }),
+    // Deliberately late: the panel must fill the list before this ever answers.
+    destinations: () => pending,
+  })
+  const instance = mount({})
+  const { container } = await render([
+    React.createElement(instance.components.get('dsh-xcodebuild-panel').component, { key: 'overlay' }),
+    React.createElement(instance.components.get('dsh-xcodebuild-toggle').component, { key: 'toggle', sessionId: 'session-bench' }),
+  ])
+  await act(async () => {
+    container.querySelector('.xcb-trigger').dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+  })
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 80)) })
+
+  const dest = () => container.querySelector('.xcb-select.dest')
+  const noteText = () => container.querySelector('.xcb-destnote')?.textContent ?? ''
+  const options = () => Array.from(dest()?.querySelectorAll('option') ?? []).map((node) => node.textContent)
+
+  section('the cached list is on screen while the command runs')
+  equal(options(), ['▣ iPhone 12 · 26.6.2', '◻ iPhone 16 · 18.0'],
+    'the cached devices are painted before the host has answered')
+  equal(dest()?.value, cachedDevice.destination,
+    'and the device used last time is still selected, so nothing has to be re-picked')
+  check(noteText().includes('cached'), `a cached list says so (${JSON.stringify(noteText())})`)
+  check(noteText().includes('2m'), `with its age, so a phone unplugged minutes ago is not trusted blindly (${JSON.stringify(noteText())})`)
+  check(noteText().includes('refreshing'), `and that a refresh is under way (${JSON.stringify(noteText())})`)
+  check(noteText().includes('cached') && container.querySelector('.xcb-destnote.stale') !== null,
+    'the note is drawn in its stale form, not as a live list')
+  equal(calls.filter((call) => call.method === 'destinations').length, 1,
+    'the command runs on every look, cached list or not')
+
+  section('the refreshed list replaces it')
+  // The bench swapped hardware: the cached phone is gone and another is in.
+  await act(async () => {
+    answer({ destinations: [freshDevice, cachedSimulator], recommended: freshDevice.destination })
+    await new Promise((resolve) => setTimeout(resolve, 40))
+  })
+  equal(options(), ['▣ iPhone X · 16.7.12', '◻ iPhone 16 · 18.0'],
+    'the live list is what is shown once the command answers')
+  equal(dest()?.value, freshDevice.destination,
+    'a selection that no longer exists moves to the host\'s recommendation')
+  equal(noteText(), '', 'and the cached marker is gone: the list is live now')
+  check(container.querySelector('.xcb-destnote.stale') === null, 'including its stale styling')
+
+  section('the fresh list is what the next look paints')
+  const stored = JSON.parse(dom.window.localStorage.getItem('dsh-xcodebuild:selections'))[workspace]
+  equal(stored.destinations.list.map((entry) => entry.name), ['iPhone X', 'iPhone 16'],
+    'the list itself is stored, which is what makes the next look instant')
+  equal(stored.destinations.scheme, 'Bench', 'stored against the scheme it belongs to')
+  check(stored.destinations.at > Date.now() - 10000, 'with the instant it was read')
+  equal(stored.destination, freshDevice.destination, 'and the moved selection is remembered too')
+}
+
+section('looking at the list refreshes it, without moving the options under the pointer')
+{
+  const workspace = '/Users/mac/Project/Look'
+  const project = `${workspace}/Look.xcworkspace`
+  const phone = { destination: 'id=PHONE', kind: 'device', name: 'iPhone X', os: '16.7.12', placeholder: false }
+  const other = { destination: 'id=OTHER', kind: 'device', name: 'iPhone 12', os: '26.6.2', placeholder: false }
+  dom.window.localStorage.clear()
+  dom.window.localStorage.setItem('dsh-xcodebuild:selections', JSON.stringify({
+    [workspace]: {
+      scheme: 'Look',
+      destination: phone.destination,
+      info: { kind: 'workspace', root: workspace, location: project, name: 'Look', schemes: ['Look'], configurations: ['Debug'], sweetpadDefaults: {} },
+      destinations: { scheme: 'Look', list: [phone], recommended: phone.destination, at: Date.now() - 60000 },
+    },
+  }))
+  let answer = null
+  let reads = 0
+  const calls = serve({
+    state: () => ({ workspace, activeRunId: null, runs: [] }),
+    projects: () => { throw new Error('the stored project must not be searched for again') },
+    detect: (body) => ({
+      kind: 'workspace', root: workspace, location: body.path, name: 'Look',
+      schemes: ['Look'], configurations: ['Debug'], sweetpadDefaults: {},
+    }),
+    // The mount-time read answers at once; the one the look triggers is deliberately late.
+    destinations: () => {
+      reads += 1
+      if (reads === 1) return { destinations: [phone], recommended: phone.destination }
+      return new Promise((resolve) => { answer = resolve })
+    },
+  })
+  const instance = mount({})
+  const { container } = await render([
+    React.createElement(instance.components.get('dsh-xcodebuild-panel').component, { key: 'overlay' }),
+    React.createElement(instance.components.get('dsh-xcodebuild-toggle').component, { key: 'toggle', sessionId: 'session-look' }),
+  ])
+  await act(async () => {
+    container.querySelector('.xcb-trigger').dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+  })
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 80)) })
+  const dest = () => container.querySelector('.xcb-select.dest')
+  const optionNames = () => Array.from(dest()?.querySelectorAll('option') ?? []).map((node) => node.textContent)
+  const seen = calls.filter((call) => call.method === 'destinations').length
+  equal(seen, 1, 'opening the panel read the list once')
+  equal(optionNames(), ['▣ iPhone X · 16.7.12'], 'and the same hardware is what is on screen')
+
+  section('opening the dropdown asks the host again')
+  await act(async () => {
+    dest().dispatchEvent(new dom.window.MouseEvent('mousedown', { bubbles: true }))
+  })
+  equal(calls.filter((call) => call.method === 'destinations').length, seen + 1,
+    'a look at the list is a refresh, even though the cache was painted')
+  check(container.querySelector('.xcb-destnote')?.textContent.includes('refreshing') === true,
+    'and the panel says it is refreshing')
+
+  section('the answer waits for the dropdown to close')
+  // The phone that was plugged in since. Applying it now would rebuild the options of an
+  // open <select>, which is how a dropdown snaps shut on the item being chosen.
+  await act(async () => {
+    answer({ destinations: [other], recommended: other.destination })
+    await new Promise((resolve) => setTimeout(resolve, 40))
+  })
+  equal(optionNames(), ['▣ iPhone X · 16.7.12'], 'the options do not move while the list is open')
+  await act(async () => {
+    // React hears `blur` through the bubbling `focusout` it delegates, which is the event
+    // a real dropdown closing produces; the panel's handler is called directly here so the
+    // assertion is about the hand-off and not about jsdom's focus emulation.
+    propsOf(dest()).onBlur()
+    await new Promise((resolve) => setTimeout(resolve, 20))
+  })
+  equal(optionNames(), ['▣ iPhone 12 · 26.6.2'], 'and the fresh list is applied as soon as it shuts')
+  equal(dest()?.value, other.destination, 'with the selection following the new hardware')
+  equal(container.querySelector('.xcb-destnote'), null, 'and the refreshing marker gone')
+
+  section('the refresh button re-reads on demand')
+  const again = serve({
+    state: () => ({ workspace, activeRunId: null, runs: [] }),
+    projects: () => { throw new Error('no search') },
+    detect: (body) => ({
+      kind: 'workspace', root: workspace, location: body.path, name: 'Look',
+      schemes: ['Look'], configurations: ['Debug'], sweetpadDefaults: {},
+    }),
+    destinations: () => ({ destinations: [other], recommended: other.destination }),
+  })
+  const button = Array.from(container.querySelectorAll('.xcb-btn')).find((node) => node.textContent === '⟳')
+  check(button !== undefined, 'the panel offers an explicit way to re-read the device list')
+  // A live list read a moment ago is not re-read on its own; asking outright must still work.
+  equal(again.filter((call) => call.method === 'destinations').length, 0, 'nothing is asked for on its own')
+  await act(async () => {
+    button.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+    await new Promise((resolve) => setTimeout(resolve, 30))
+  })
+  equal(again.filter((call) => call.method === 'destinations').length, 1,
+    'the button asks the host regardless of how recently the list was read')
+}
+
+section('a cached list for another scheme is not painted')
+{
+  // Destinations follow the scheme: a scheme that only builds for simulators must not
+  // be shown the previous scheme's hardware just because it is cached.
+  const workspace = '/Users/mac/Project/Other'
+  const project = `${workspace}/Other.xcworkspace`
+  dom.window.localStorage.clear()
+  dom.window.localStorage.setItem('dsh-xcodebuild:selections', JSON.stringify({
+    [workspace]: {
+      scheme: 'Two',
+      info: { kind: 'workspace', root: workspace, location: project, name: 'Other', schemes: ['One', 'Two'], configurations: ['Debug'], sweetpadDefaults: {} },
+      destinations: {
+        scheme: 'One',
+        list: [{ destination: 'id=STALE', kind: 'device', name: 'iPhone 12', os: '26.6.2', placeholder: false }],
+        recommended: 'id=STALE',
+        at: Date.now() - 1000,
+      },
+    },
+  }))
+  const calls = serve({
+    state: () => ({ workspace, activeRunId: null, runs: [] }),
+    projects: () => { throw new Error('the stored project must not be searched for again') },
+    detect: (body) => ({
+      kind: 'workspace', root: workspace, location: body.path, name: 'Other',
+      schemes: ['One', 'Two'], configurations: ['Debug'], sweetpadDefaults: {},
+    }),
+    destinations: () => ({ destinations: [], recommended: '' }),
+  })
+  const instance = mount({})
+  const { container } = await render([
+    React.createElement(instance.components.get('dsh-xcodebuild-panel').component, { key: 'overlay' }),
+    React.createElement(instance.components.get('dsh-xcodebuild-toggle').component, { key: 'toggle', sessionId: 'session-other-scheme' }),
+  ])
+  await act(async () => {
+    container.querySelector('.xcb-trigger').dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+  })
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 80)) })
+  equal(Array.from(container.querySelectorAll('.xcb-select.dest option')).map((node) => node.textContent),
+    ['no destinations'], 'scheme Two is not shown scheme One\'s cached device list')
+  check(calls.some((call) => call.method === 'destinations'), 'and the command still ran')
+}
+
+// =========================================================================
+// Naming the session. With better-sidebar installed the panel is rendered by
+// the dock tab, and that tab's `scope` is the only place the dockside session
+// came from — until it arrives without one, at which point every read went out
+// unnamed and the host answered with its own launch directory. The header seat
+// is mounted in every shell and always knows its session; it now covers that gap
+// without ever overriding the seat the user is actually looking at.
+// =========================================================================
+
+section('the header seat names the session the dock cannot')
+{
+  const workspace = '/Users/example/HeaderProject'
+  const calls = serve({
+    state: (body) => ({ workspace: body.sessionId === 'sess-header' ? workspace : '/launch-root', activeRunId: null, runs: [] }),
+    projects: () => ({ candidates: [], root: workspace }),
+    detect: (body) => ({ kind: 'workspace', root: workspace, location: body.path, name: 'P', schemes: [], configurations: [], sweetpadDefaults: {} }),
+  })
+
+  const instance = mount({ dock: {} })
+  const descriptor = instance.registered[0]
+  const toggle = instance.components.get('dsh-xcodebuild-toggle')
+
+  // A tab the dock opened without a scope: exactly the shape that produced the
+  // launch-root workspace.
+  const { root } = await render([
+    React.createElement(descriptor.component, { key: 'tab' }),
+    React.createElement(toggle.component, { key: 'toggle', sessionId: 'sess-header' }),
+  ])
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 40)) })
+
+  const stateCalls = () => calls.filter((call) => call.method === 'state')
+  // This suite mounts many instances against one shared module closure, and the
+  // earlier sections' timers keep running (their fakes never dispose). Only the
+  // calls naming one of THIS section's sessions are ours to judge.
+  const mine = () => stateCalls().filter((call) => String(call.body.sessionId ?? '').startsWith('sess-'))
+
+  check(stateCalls().length >= 1, 'the panel reads state on mount')
+  check(mine().some((call) => call.body.sessionId === 'sess-header'),
+    'an unscoped dock tab still reads under the header seat\'s session',
+    JSON.stringify(mine().map((call) => call.body)))
+  check(!mine().some((call) => call.body.sessionId === undefined),
+    'and never asks the host to guess, which is what produced launch-root')
+
+  // The dock is authoritative when it does speak.
+  await act(async () => {
+    root.render([
+      React.createElement(descriptor.component, { key: 'tab', scope: { sessionId: 'sess-dock' } }),
+      React.createElement(toggle.component, { key: 'toggle', sessionId: 'sess-header' }),
+    ])
+  })
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 40)) })
+  equal(mine().slice(-1)[0]?.body.sessionId, 'sess-dock',
+    'the dock tab\'s scope wins once it names a session')
+
+  // A scope that arrives empty is not a reason to forget the session the dock
+  // itself just named — the panel would fall back to an unnamed read again.
+  await act(async () => {
+    root.render([
+      React.createElement(descriptor.component, { key: 'tab', scope: {} }),
+      React.createElement(toggle.component, { key: 'toggle', sessionId: 'sess-header' }),
+    ])
+  })
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 40)) })
+  equal(mine().slice(-1)[0]?.body.sessionId, 'sess-dock',
+    'an empty scope does not wipe the session already established')
+
+  await act(async () => { root.unmount() })
+}
 
 console.log(`${checks - failures}/${checks} checks passed`)
 if (failures > 0) {

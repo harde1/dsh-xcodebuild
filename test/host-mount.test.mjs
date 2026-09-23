@@ -16,6 +16,17 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+// The log formatter is switched off for this suite, on purpose.
+//
+// This test drives REAL processes through the plugin to check the host plumbing — a
+// `/start` that must answer before the build does, routes that must detach — and piping a
+// real `xcodebuild` into a second process from inside a test harness gets the whole
+// process tree killed by the environment once every check has already passed (72/72, then
+// SIGKILL; without the pipeline it exits 0). The pipeline itself is not unchecked: it has
+// its own suite, `test/beautify.test.mjs`, which runs the real `xcbeautify`.
+process.env.DSH_XCODEBUILD_NO_BEAUTIFY = '1'
+
+
 /** This plugin's own directory — a tree that deliberately holds no Xcode project. */
 const pluginRoot = join(dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -70,9 +81,24 @@ const effectLabels = []
 const warnings = []
 const infos = []
 
+/**
+ * Live sessions the fake `sessions` service answers for.
+ *
+ * `header.cwd` is optional on a real session, so the store below includes one
+ * that has none: an absent directory is a normal outcome, not an error.
+ */
+const SESSIONS = {
+  'session-known': { header: { cwd: '/Users/example/KnownProject' } },
+  'session-no-cwd': { header: {} },
+}
+
 function makeCtx() {
   return {
     logger: { info: (line) => infos.push(line), warn: (line) => warnings.push(line) },
+    get(name) {
+      if (name !== 'sessions') return undefined
+      return { get: (id) => SESSIONS[id] }
+    },
     tools: {
       register(definition) {
         registeredTools.push(definition)
@@ -225,6 +251,34 @@ const startRoute = registeredRoutes.find((route) => route.path.endsWith('/start'
     'state reports the mounted revision, so a stale process is visible',
     String(payload.revision))
   check(payload.activeRunId === null, 'no run is active before anything is started')
+}
+
+// Whose workspace is this? The session header knows, and nothing else may guess.
+//
+// The host used to fall back to `process.cwd()`, which is the harness's own
+// launch directory: the panel then searched `.../dsh-desktop/launch-root` and
+// reported "No .xcworkspace or .xcodeproj under launch-root" — an error about a
+// directory the user never picked. An empty answer is the honest one.
+{
+  const read = async (body) => {
+    const res = fakeResponse()
+    await stateRoute.handler(fakeRequest({ body }), res)
+    return JSON.parse(res.body)
+  }
+
+  const unnamed = await read('')
+  equal(unnamed.workspace, '', 'no session named: the workspace is empty')
+  check(unnamed.workspace !== process.cwd(),
+    'and never the harness process directory, which is what launch-root was',
+    String(unnamed.workspace))
+
+  equal((await read(JSON.stringify({ sessionId: 'session-unknown' }))).workspace, '',
+    'an unknown session is empty too, rather than falling back to a directory')
+  equal((await read(JSON.stringify({ sessionId: 'session-no-cwd' }))).workspace, '',
+    'a session whose header carries no cwd is empty rather than incorrect')
+  equal((await read(JSON.stringify({ sessionId: 'session-known' }))).workspace,
+    '/Users/example/KnownProject',
+    'a named session answers with the directory the user opened')
 }
 
 const projectsRoute = registeredRoutes.find((route) => route.path.endsWith('/projects'))

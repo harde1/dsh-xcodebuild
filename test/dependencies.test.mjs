@@ -18,7 +18,9 @@ import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import {
   DEPENDENCIES,
+  LEGACY_GROUP,
   LEGACY_TOOLCHAIN_INSTALL,
+  READABILITY_GROUP,
   doctorReport,
   legacyTool,
   missingToolNotice,
@@ -103,14 +105,44 @@ for (const entry of DEPENDENCIES.filter((item) => item.required)) {
     `${entry.command} is not installed with Homebrew`, entry.install)
 }
 
-// --- the optional half is one group, and closed by one command -------------
+// --- the optional half: one group closed by one command, plus readability ---
+//
+// The optional tools are NOT all alike any more, and folding them together was a real
+// hazard: `xcbeautify` missing is not a gap in anything, and telling a user with a
+// working build to `brew install libimobiledevice ideviceinstaller ios-deploy` because
+// their log is not beautified would be worse than saying nothing.
 
-const legacy = DEPENDENCIES.filter((entry) => !entry.required)
+const optional = DEPENDENCIES.filter((entry) => !entry.required)
+const legacy = optional.filter((entry) => entry.group === LEGACY_GROUP)
 for (const entry of legacy) {
   check(LEGACY_TOOLCHAIN_INSTALL.includes(entry.install.split(' ').pop()),
     `${entry.command}'s formula appears in the combined install command`, LEGACY_TOOLCHAIN_INSTALL)
 }
 check(legacy.length === 5, 'the classic channel is the whole optional set', `${legacy.length} entries`)
+
+const readability = optional.filter((entry) => entry.group === READABILITY_GROUP)
+equal(readability.map((entry) => entry.command), ['xcbeautify'],
+  'beautifying is its own optional group, so the doctor cannot ask for it as if it were device support')
+check(!LEGACY_TOOLCHAIN_INSTALL.includes('xcbeautify'),
+  'and it is not part of the classic channel install command', LEGACY_TOOLCHAIN_INSTALL)
+equal(DEPENDENCIES.find((entry) => entry.command === 'xcbeautify')?.install, 'brew install xcbeautify',
+  'xcbeautify is its own formula')
+
+// --- the doctor separates a gap from a nicety ------------------------------
+
+{
+  const report = await doctorReport()
+  const missing = new Set(report.missingOptional)
+  check(report.tools.some((tool) => tool.command === 'xcbeautify'), 'the doctor reports xcbeautify')
+  // Whichever way this machine answers, the two questions stay apart: a missing
+  // readability tool must not produce a device-toolchain install line.
+  const legacyMissing = report.tools.some((tool) => !tool.required && !tool.ready && tool.group === LEGACY_GROUP)
+  equal(report.legacyInstall !== '', legacyMissing,
+    'the classic channel install line appears exactly when a classic-channel tool is missing')
+  if (missing.has('xcbeautify') && !legacyMissing) {
+    equal(report.legacyInstall, '', 'a machine missing only xcbeautify is not told to install the device toolchain')
+  }
+}
 
 // --- resolution ------------------------------------------------------------
 

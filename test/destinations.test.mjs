@@ -9,6 +9,7 @@ import {
   destinationString,
   destinationKindOf,
   pickDefaultDestination,
+  sortDestinations,
   variantForDestination,
 } from '../lib/parse-destinations.js'
 
@@ -196,6 +197,107 @@ eq(
   'platform=iOS,id=D',
   'a device listed after a simulator is still preferred',
 )
+
+
+// --- the order the list is shown in --------------------------------------
+//
+// A bench swaps phones and simulators all day. The order xcodebuild reports is
+// neither grouped nor stable for that: `platform:macOS` is printed first, and the
+// iOS 16 devices this plugin discovers itself are appended after everything — so a
+// phone plugged in a moment ago appeared LAST, below a dozen simulators, exactly
+// when it was the thing being looked for.
+
+const dev = (name, os, extra = {}) => ({
+  platform: 'iOS', id: `id-${name}-${os}`, name, os, arch: 'arm64', variant: '',
+  kind: 'device', placeholder: false, ...extra,
+})
+const simulator = (name, os) => ({
+  platform: 'iOS Simulator', id: `sim-${name}-${os}`, name, os, arch: 'arm64', variant: '',
+  kind: 'simulator', placeholder: false,
+})
+const macEntry = { platform: 'macOS', id: 'macEntry', name: 'My Mac', os: '', arch: 'arm64', variant: 'Designed for [iPad,iPhone]', kind: 'macos', placeholder: false }
+const anyDevice = { platform: 'iOS', id: 'dvtdevice-DVTiPhonePlaceholder-iphoneos:placeholder', name: 'Any iOS Device', os: '', arch: 'arm64', variant: '', kind: 'device', placeholder: true }
+
+/** `eq` above is strict, and two arrays are never the same object. */
+function equal(actual, expected, label) {
+  check(JSON.stringify(actual) === JSON.stringify(expected), label,
+    `actual:   ${JSON.stringify(actual)}\nexpected: ${JSON.stringify(expected)}`)
+}
+
+const order = (entries) => sortDestinations(entries).map((d) => d.name)
+
+equal(
+  order([
+    macEntry,
+    simulator('iPhone 17 Pro', '26.0.1'),
+    simulator('iPad Pro 13-inch (M4)', '26.0.1'),
+    anyDevice,
+    // The shape `legacyDevices` produces for an iOS 16 phone: discovered here, so
+    // appended after xcodebuild's own output.
+    dev('iPhone X', '16.7.12', { legacy: true, model: 'iPhone10,3' }),
+  ]),
+  ['iPhone X', 'Any iOS Device', 'iPad Pro 13-inch (M4)', 'iPhone 17 Pro', 'My Mac'],
+  'connected hardware leads, simulators follow, a Mac last — the phone is no longer appended below them',
+)
+
+equal(order([simulator('iPhone 17 Pro', '26.0.1'), dev('iPhone 12', '26.6.2')]), ['iPhone 12', 'iPhone 17 Pro'],
+  'a device outranks a simulator even when xcodebuild listed the simulator first')
+equal(order([macEntry, simulator('iPad Pro 13-inch (M4)', '26.0.1'), dev('iPhone 12', '26.6.2')]), ['iPhone 12', 'iPad Pro 13-inch (M4)', 'My Mac'],
+  'macOS is grouped behind both, not left where xcodebuild printed it')
+
+equal(order([dev('iPhone 12', '26.6.2'), anyDevice]), ['iPhone 12', 'Any iOS Device'],
+  'a generic entry is a fallback, so it follows the real hardware in its group')
+equal(order([anyDevice, simulator('iPhone 17 Pro', '26.0.1')]), ['Any iOS Device', 'iPhone 17 Pro'],
+  'and it still leads the simulators, being nearer to the thing being tested on')
+
+equal(order([dev('iPhone 9', '15.0'), dev('iPhone 12', '26.6.2'), dev('iPhone 16', '26.0.1'), dev('iPhone X', '16.7.12')]),
+  ['iPhone 9', 'iPhone 12', 'iPhone 16', 'iPhone X'],
+  'names are read the way a person reads them: 9 before 12, numbers before letters')
+
+equal(order([dev('iPhone 12', '16.7.12'), dev('iPhone 12', '26.6.2')]), ['iPhone 12', 'iPhone 12'],
+  'two entries that differ only by OS keep both')
+check(
+  sortDestinations([dev('iPhone 12', '16.7.12'), dev('iPhone 12', '26.6.2')])[0].os === '26.6.2',
+  'and the newer OS is the one offered first',
+)
+
+// A newly connected phone must slot in, not land at the end: this is the whole
+// point of sorting on every refresh.
+const beforePlug = [macEntry, simulator('iPhone 17 Pro', '26.0.1'), dev('iPhone X', '16.7.12')]
+const afterPlug = [simulator('iPhone 17 Pro', '26.0.1'), macEntry, dev('iPhone X', '16.7.12'), dev('iPhone 12', '26.6.2')]
+equal(order(afterPlug), ['iPhone 12', 'iPhone X', 'iPhone 17 Pro', 'My Mac'],
+  'a device plugged in since the last look takes its place among the hardware')
+check(order(afterPlug).indexOf('iPhone 12') < order(beforePlug).length,
+  'the new device is not appended below the simulators')
+
+// Two records that agree on everything must not swap on a re-sort, or the list
+// would move under the pointer while the user is aiming at it.
+const twins = [dev('iPhone 12', '26.6.2', { id: 'first' }), dev('iPhone 12', '26.6.2', { id: 'second' })]
+equal(sortDestinations(twins).map((d) => d.id), ['first', 'second'], 'identical entries keep the order the host reported')
+eq(JSON.stringify(sortDestinations(sortDestinations(afterPlug))), JSON.stringify(sortDestinations(afterPlug)),
+  'sorting twice changes nothing')
+
+eq(JSON.stringify(sortDestinations(undefined)), '[]', 'no list sorts to an empty list')
+const withJunk = sortDestinations([{ name: 'broken' }, null, dev('iPhone X', '16.7.12')])
+eq(withJunk.length, 3, 'an unusable entry survives sorting rather than throwing')
+eq(withJunk[0].name, 'iPhone X', 'and the real hardware still leads')
+eq(withJunk[1], null, 'with a record carrying no kind ahead of one that has a name')
+eq(withJunk[2].name, 'broken', 'and nothing dropped')
+const untouched = [simulator('iPhone 17 Pro', '26.0.1'), dev('iPhone X', '16.7.12')]
+sortDestinations(untouched)
+equal(untouched.map((d) => d.name), ['iPhone 17 Pro', 'iPhone X'], 'the array handed in is not reordered in place')
+
+console.log('\n== the real fixture, sorted ==')
+const sorted = sortDestinations(list)
+eq(sorted.length, list.length, 'sorting the real list loses nothing')
+const kinds = sorted.map((d) => d.kind)
+const rank = { device: 0, simulator: 1, macos: 2, other: 3 }
+check(kinds.every((k, i) => i === 0 || rank[kinds[i - 1]] <= rank[k]),
+  'every device precedes every simulator in the real list, and macOS is last')
+eq(sorted[0].kind, 'device', 'and the first entry is hardware, so the list opens on what is being tested')
+check(sorted[0].placeholder !== true, 'which is a concrete device, not a generic fallback')
+eq(destinationString(sorted[sorted.length - 1]), 'platform=macOS,arch=arm64,variant=Designed for iPad',
+  'with the Mac destination at the end')
 
 console.log(`\n${checks - failures}/${checks} checks passed`)
 if (failures > 0) {

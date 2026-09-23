@@ -9,7 +9,7 @@
 //
 // Run: node test/classify.test.mjs
 
-import { classify } from '../lib/classify.js'
+import { KINDS, classify } from '../lib/classify.js'
 
 let failures = 0
 let checks = 0
@@ -22,6 +22,13 @@ let checks = 0
 function expectKind(line, expected) {
   checks += 1
   const actual = classify(line)
+  // Every case below also pins the vocabulary itself: a kind the classifier can produce
+  // but `KINDS` does not list is a kind the panel has no toggle for.
+  if (!KINDS.includes(actual)) {
+    failures += 1
+    console.error(`FAIL classify(${JSON.stringify(line)}) returned ${JSON.stringify(actual)}, which is not in KINDS`)
+    return
+  }
   if (actual !== expected) {
     failures += 1
     console.error(`FAIL classify(${JSON.stringify(line)})\n  actual:   ${actual}\n  expected: ${expected}`)
@@ -77,6 +84,25 @@ expectKind('Testing started on \'iPhone 17 Pro\'', 'test')
 expectKind('$ xcodebuild -workspace Gemoy.xcworkspace -scheme Gemoy build', 'section')
 expectKind('=== CLEAN TARGET Gemoy OF PROJECT Gemoy ===', 'section')
 expectKind('--- xcodebuild: WARNING: Using the first of multiple matching destinations', 'section')
+
+// --- what xcbeautify leaves behind ---------------------------------------
+//
+// Measured against xcbeautify 2.28.0, which is what the panel's log is piped through
+// when the machine has it: it eats the words `error:` and `warning:` and rewrites the
+// banner. A classifier that could not read these would leave a beautified log with
+// nothing marked at all — worse than an ugly one.
+expectKind("[x] /p/App.swift:12:9: cannot find 'Foo' in scope", 'error')
+expectKind("[!]  /p/App.swift:4:2: unused variable 'x'", 'warning')
+expectKind("[x] /p/Other.swift:1:1: use of unresolved identifier 'Bar'", 'error')
+expectKind('Build Succeeded', 'success')
+expectKind('Clean Succeeded', 'success')
+expectKind('Archive Succeeded', 'success')
+expectKind('Test Succeeded', 'success')
+// The marker is anchored to the start of the line and is not just a bracket: a beautified
+// log still contains raw lines, and xcodebuild prints bracketed text of its own. Both of
+// these are neither an error nor a warning, which is the point.
+expectKind('[1/12] Compiling App.swift', 'plain')
+expectKind('    [!] note: this is not a marker, it is indented text', 'plain')
 
 // --- plain ----------------------------------------------------------------
 expectKind('', 'plain')
