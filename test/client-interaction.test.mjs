@@ -116,15 +116,29 @@ equal(client.inject, ['slots'], 'only slots is a hard dependency, so a missing d
 /**
  * Mount one instance of the plugin against a fake context.
  *
- * `dock` supplies the better-sidebar service when given; omitting it is the
- * shell-without-better-sidebar case that the overlay exists for.
+ * `dock` supplies the better-sidebar service when given, `sidebarRight` the
+ * official right sidebar's tab registry. Omitting both is the shell with neither
+ * sidebar — the case the header button and the overlay exist for.
+ *
+ * The two services are answered in the order the plugin asked for them, which is
+ * the fallback first and the dock second, so every mount exercises the handover
+ * `syncSeats` exists for. `seatOrder` reorders them for the other arrival order.
  */
-function mount({ dock } = {}) {
+function mount({ dock, sidebarRight, seatOrder } = {}) {
   const components = new Map()
+  // Keyed seats reach this map by `id` or by `key` — and two seats of the plugin can
+  // share a key (a tab type's body and its chip are the same id in two slots), so the
+  // exact seat is looked up through `bySeat`, by slot name and cell.
+  const bySeat = new Map()
   const seats = []
   const effects = []
   const registered = []
   const opened = []
+  const rightTypes = []
+  const rightLive = []
+  const liveSeats = []
+  const givenBack = []
+  const pending = []
   let dockListener = null
 
   const service = dock
@@ -139,14 +153,50 @@ function mount({ dock } = {}) {
       }
     : undefined
 
+  // The official registry's contract that matters here: `register` records the
+  // definition and returns an idempotent disposer, and an id registered twice is a
+  // wiring mistake rather than something to paper over.
+  const registry = sidebarRight
+    ? {
+        register(definition) {
+          if (rightTypes.some((type) => type.id === definition.id)) {
+            throw new Error(`sidebarRight: tab type id "${definition.id}" is already registered`)
+          }
+          rightTypes.push(definition)
+          rightLive.push(definition.id)
+          let live = true
+          return () => {
+            if (!live) return
+            live = false
+            rightLive.splice(rightLive.indexOf(definition.id), 1)
+            givenBack.push(definition.id)
+          }
+        },
+      }
+    : undefined
+
+  const scopeEffect = (callback) => {
+    const dispose = callback()
+    return typeof dispose === 'function' ? dispose : () => {}
+  }
+
   const ctx = {
     slots: {
       inject(slotName, register) {
         seats.push(slotName)
-        register()
+        liveSeats.push(slotName)
+        const dispose = register()
+        return () => {
+          liveSeats.splice(liveSeats.indexOf(slotName), 1)
+          givenBack.push(slotName)
+          if (typeof dispose === 'function') dispose()
+        }
       },
       register(spec, component) {
-        components.set(spec.id, { spec, component })
+        // A keyed seat names its cell with `key`; the plugin's own seats use `id`.
+        const seat = { spec, component }
+        components.set(spec.id ?? spec.key, seat)
+        bySeat.set(`${spec.name}#${spec.id ?? spec.key}`, seat)
         return () => {}
       },
     },
@@ -156,21 +206,33 @@ function mount({ dock } = {}) {
       return () => {}
     },
     inject(services, callback) {
-      if (service === undefined) return
-      callback({
-        betterSidebar: service,
-        effect: (cb) => { const dispose = cb(); return typeof dispose === 'function' ? dispose : () => {} },
-      })
+      pending.push({ services, callback })
     },
   }
 
   client.apply(ctx)
 
+  const scopes = {
+    betterSidebar: service === undefined ? null : { betterSidebar: service, effect: scopeEffect },
+    sidebarRightTabs: registry === undefined ? null : { sidebarRightTabs: registry, effect: scopeEffect },
+  }
+  for (const key of seatOrder ?? ['sidebarRightTabs', 'betterSidebar']) {
+    const call = pending.find((entry) => entry.services.includes(key) && scopes[key] !== null && entry.done !== true)
+    if (call === undefined) continue
+    call.done = true
+    call.callback(scopes[key])
+  }
+
   return {
     components,
+    bySeat,
     seats,
     registered,
     opened,
+    rightTypes,
+    rightLive,
+    liveSeats,
+    givenBack,
     notifyDock: () => { if (dockListener !== null) dockListener() },
   }
 }
@@ -295,13 +357,32 @@ section('without better-sidebar')
   check(calls.some((call) => call.method === 'state'), 'the header button read state, so the panel opens onto known facts')
   check(container.querySelector('.xcb-panel') === null, 'the panel starts closed')
 
-  section('click "XcBuild"')
+  section('the header control is a glyph, not a word')
   const button = container.querySelector('.xcb-trigger')
+  check(button !== null, 'the header seat draws a control at all')
+  equal(button.textContent.trim(), '', 'it carries no text label')
+  check(button.querySelector('.xcb-mark') !== null, 'it draws its mark instead')
+  equal(button.getAttribute('aria-label'), 'XcBuild panel',
+    'the mark keeps an accessible name, which is the only place the name is left')
+  equal(button.getAttribute('aria-pressed'), 'false', 'and reports its state — closed')
+  check(button.querySelector('.xcb-dot') !== null, 'the build status is still on the control')
+
+  section('click "XcBuild"')
   await act(async () => {
     button.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
   })
   check(container.querySelector('.xcb-panel') !== null, 'the panel opens on the first click')
   check(button.className.includes('on') === true, 'the toggle shows its open state')
+  equal(button.getAttribute('aria-pressed'), 'true', 'and reports its state — open')
+
+  section('the two marks on screen are one drawing')
+  const pen = (svg) => Array.from(svg.querySelectorAll('path'))
+    .map((node) => node.getAttribute('d')).join('|')
+  const buttonMark = container.querySelector('.xcb-trigger svg.xcb-mark')
+  const headMark = container.querySelector('.xcb-head svg.xcb-mark')
+  check(buttonMark !== null && headMark !== null,
+    'the header entry and the floating head both draw the mark')
+  equal(pen(headMark), pen(buttonMark), 'and it is the same drawing, so the plugin looks like itself in both')
 
   section('click close')
   const close = container.querySelector('.xcb-head .xcb-btn')
@@ -421,6 +502,139 @@ section('without better-sidebar')
     propsOf(filterInput).onBlur()
   })
   check(filterInput.className.includes('pending') === false, 'blurring commits the filter')
+}
+
+// =========================================================================
+// The shell has the official right sidebar: it owns the panel the same way the
+// dock does, and the header button goes away for the same reason.
+// =========================================================================
+
+section('with the official right sidebar and no better-sidebar')
+{
+  const calls = serve({
+    state: () => ({ workspace: '/Users/mac/Project/Gemoy', activeRunId: null, runs: [] }),
+    projects: () => ({ root: '/Users/mac/Project/Gemoy', truncated: false, candidates: [] }),
+    destinations: () => ({ destinations: [] }),
+  })
+
+  const instance = mount({ sidebarRight: true })
+  equal(instance.registered.length, 0, 'nothing is contributed to a dock the shell does not have')
+  equal(instance.liveSeats, ['shell.overlay', 'conversation.session.header.utilities',
+    'sidebar.right.pane.tab', 'sidebar.right.pane.tab.title'],
+    'the fallback seats stay, and the official sidebar gets the tab body and its chip')
+  equal(instance.rightLive, ['dsh-xcodebuild'], 'exactly one tab type is held by the official sidebar')
+
+  const type = instance.rightTypes[0]
+  equal(type.id, 'dsh-xcodebuild', 'the type id is the plugin id, which is also the body seat key')
+  equal(type.kind, 'xcodebuild', 'under a kind of its own, so no builtin type is taken over')
+  equal(type.priority, 'extension', 'contributed in the band a plugin belongs to')
+  equal(type.title(), 'XcBuild', 'titled like the dock tab')
+  equal(type.guide.length, 1, 'with one Guide capsule: that is how a shell with no dock discovers it')
+  equal(type.guide[0].title(), 'XcBuild', 'named the same there')
+  equal(typeof type.guide[0].description(), 'string', 'and described for the Guide')
+
+  const body = instance.bySeat.get('sidebar.right.pane.tab#dsh-xcodebuild')
+  const chip = instance.bySeat.get('sidebar.right.pane.tab.title#dsh-xcodebuild')
+  const toggle = instance.components.get('dsh-xcodebuild-toggle')
+  check(body !== undefined && chip !== undefined && toggle !== undefined, 'all three seats are filled')
+
+  const { container } = await render([
+    React.createElement(body.component, { key: 'body', sessionId: 'session-gemoy' }),
+    React.createElement(chip.component, { key: 'chip' }),
+    React.createElement(toggle.component, { key: 'toggle', sessionId: 'session-gemoy' }),
+  ])
+  check(container.textContent.includes('XcBuild'), 'the chip names the tab')
+
+  const docked = container.querySelector('.xcb-panel')
+  check(docked !== null, 'the tab body is the panel')
+  check(docked?.className.includes('docked') === true, 'laid out to fill the tab, not to float')
+  check(container.querySelector('.xcb-head') === null, 'with no head row: the shell draws the tab chip and its close button')
+  check(container.querySelector('.xcb-trigger') === null,
+    'and no header button, because the sidebar offers the tab itself')
+
+  // The official sidebar's tab bodies are session-scoped, and this panel's whole
+  // point is that it works on the session it was opened in.
+  check(calls.some((call) => call.method === 'state' && call.body.sessionId === 'session-gemoy'),
+    'the tab named its session, so the panel read that workspace')
+
+  section('the header seat is still registered, so a shell without any sidebar keeps its button')
+  const neither = mount({})
+  const bothSeats = neither.components.get('dsh-xcodebuild-toggle')
+  const fallback = await render([React.createElement(bothSeats.component, { key: 't', sessionId: 's2' })])
+  check(fallback.container.querySelector('.xcb-trigger') !== null, 'with neither sidebar, the button is drawn')
+}
+
+section('both sidebars: better-sidebar keeps the panel, the official seat is given back')
+{
+  const instance = mount({ dock: {}, sidebarRight: true })
+  equal(instance.registered.length, 1, 'the dock tab is registered')
+  // The official service answered first here, so the fallback seat really was taken
+  // — and the dock's arrival is what has to take it back.
+  equal(instance.rightTypes.length, 1, 'the official seat was taken while it was the only sidebar')
+  equal(instance.rightLive, [], 'and is not held once the dock turns out to be in charge')
+  equal(instance.liveSeats, ['shell.overlay', 'conversation.session.header.utilities'],
+    'so the header/overlay fallback is what is left, with no body seat behind it')
+  check(instance.givenBack.includes('dsh-xcodebuild'), 'the type it had registered was given back')
+  check(instance.givenBack.includes('sidebar.right.pane.tab'), 'and so was the body seat')
+
+  section('and the other arrival order settles the same way')
+  const reversed = mount({ dock: {}, sidebarRight: true, seatOrder: ['betterSidebar', 'sidebarRightTabs'] })
+  equal(reversed.registered.length, 1, 'the dock tab is registered')
+  equal(reversed.rightTypes.length, 0, 'the official sidebar is never registered with')
+  equal(reversed.givenBack.length, 0, 'and nothing had to be given back, because nothing was taken')
+}
+
+// =========================================================================
+// One mark, every seat: the plugin is recognised by the same drawing wherever
+// it is docked, and each surface asks for it in its own shape.
+// =========================================================================
+
+section('one mark for the header button, the dock tab, the Guide and the chip')
+{
+  // Compared by the drawing, not by the wrapper: the seats ask for different sizes,
+  // and the chip adds a layout class, but the path has to be the same one. That is
+  // what "the plugin's mark" means.
+  const drawing = (svg) => Array.from(svg.querySelectorAll('path'))
+    .map((node) => node.getAttribute('d'))
+    .join('|')
+
+  const docked = mount({ dock: {} }).registered[0]
+  check(typeof docked.icon === 'function', 'the dock tab is registered with an icon')
+
+  const official = mount({ sidebarRight: true })
+  const type = official.rightTypes[0]
+  const chip = official.bySeat.get('sidebar.right.pane.tab.title#dsh-xcodebuild')
+  // The header seat, from the mount where no sidebar owns the panel — that is the only
+  // shell in which it draws anything at all.
+  const plain = mount({})
+  const toggle = plain.components.get('dsh-xcodebuild-toggle')
+
+  const { container } = await render([
+    // better-sidebar's contract: `icon(size)` — the function is called, not rendered.
+    docked.icon(16),
+    // The shell's Guide contract: `entry.icon` drawn as a component with `{size}`.
+    React.createElement(type.guide[0].icon, { key: 'guide', size: 22 }),
+    React.createElement(toggle.component, { key: 'header' }),
+    React.createElement(chip.component, { key: 'chip' }),
+  ])
+
+  const marks = Array.from(container.querySelectorAll('svg.xcb-mark'))
+  equal(marks.length, 4, 'all four seats drew the mark')
+  equal(new Set(marks.map(drawing)).size, 1, 'and every one of them is the same drawing')
+  equal(marks.map((node) => node.getAttribute('width')), ['16', '22', '20', '16'],
+    'each at the size its own seat draws')
+
+  const fills = marks.map((node) => node.querySelector('path').getAttribute('fill'))
+  equal(new Set(fills).size, 4,
+    'each drawing declares its own gradient, so one seat cannot resolve to another seat\'s')
+  check(fills.every((fill) => /^url\(#xcb-emblem-[A-Za-z0-9_-]+\)$/.test(fill)),
+    'and references it by a plain, url()-safe id')
+
+  section('the chip carries the name as well')
+  const chipRender = await render([React.createElement(chip.component, { key: 'chip' })])
+  check(chipRender.container.textContent.includes('XcBuild'), 'the chip is mark plus the registered name')
+  check(chipRender.container.querySelector('svg.xcb-mark.chip') !== null,
+    'with the chip layout class, so a long title shrinks and the mark does not')
 }
 
 // =========================================================================

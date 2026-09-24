@@ -20,23 +20,44 @@ Inspired by the SweetPad VS Code extension. The package and composition row keep
 | `xcode_log` | The run's log: buffered tail, incremental slice by line number, or a regex-filtered view. Safe to call mid-build. |
 | `xcode_device_log` | The log of a simulator (`simctl spawn`, snapshot or a bounded live window) or of **physical hardware**. On iOS 16 and earlier, pass `bundleId` and the app's **own** per-launch log (`Documents/PPCrashLog/log_<timestamp>.log`) is read out of its sandbox — the file that survives a crash, readable while the device is locked; `mode: "syslog"` gives the live `idevicesyslog` window instead. |
 
-**A panel**, in two seats:
+**A panel**, in three seats, taking whichever sidebar the shell has:
 
-- **Docked** — via `ctx.betterSidebar.registerTab`, so it appears as a tab in that plugin's workbench
-  (right sidebar or bottom panel) with a title chip and a close button supplied by the host. The tab is
-  added from better-sidebar's own list; there is deliberately **no permanent header button**, because a
-  second fixed entry beside the session title would only be clutter once the sidebar can host it.
-- **Floating** — the fallback for a shell without `dsh-better-sidebar`: the same panel in
-  `shell.overlay`, with its own head row and close button, and a header button to open it — that button
-  is the only way in when there is no sidebar to add the tab from, so it survives for exactly that case
-  and renders nothing otherwise.
+- **Docked in `dsh-better-sidebar`**, when that plugin is installed — via
+  `ctx.betterSidebar.registerTab`, so it appears as a tab in its workbench (right sidebar or bottom
+  panel) with a title chip and a close button supplied by the host. The tab is added from
+  better-sidebar's own list; there is deliberately **no permanent header button**, because a second
+  fixed entry beside the session title would only be clutter once a sidebar can host it.
+- **Docked in the shell's own right sidebar**, when better-sidebar is *not* installed — via
+  `ctx.sidebarRightTabs.register`, the same tab registry the shell's **Files** tab uses. The panel
+  becomes a tab type there, listed in that sidebar's **Guide** (a capsule carrying the title and
+  description) and in its add-tab menu; the shell draws the chip and the close button. Same rule: no
+  header button, because the sidebar offers the tab itself.
+- **Floating** — the fallback for a shell with neither sidebar: the same panel in `shell.overlay`,
+  with its own head row and close button, and a header button to open it — that button is the only way
+  in when there is no sidebar to add the tab from, so it survives for exactly that case and renders
+  nothing otherwise.
 
-The dock is reached through `ctx.inject(['betterSidebar'], …)` and deliberately **not** through
-`dsh.client.inject`. That list is a hard dependency: naming `dsh-better-sidebar` there would stop this
-plugin's client half from loading for anyone who does not have it, which is the opposite of having a
-fallback. Both seats are covered by `test/client-interaction.test.mjs`.
+**One mark wherever it is docked.** The plugin is recognised by the same four-blade drawing in
+every seat: the header button's emblem, the icon better-sidebar draws in its tab strip, the shell's
+Guide capsule, the shell's tab chip, and the floating panel's head row. The seats disagree about how
+a size is handed over — better-sidebar calls `icon(size)`, the shell's Guide renders `entry.icon` as
+a component and passes `{size, className}` — so one component (`Mark`) is the drawing and a one-line
+adapter answers the first shape. Each drawing declares its own gradient, because several seats are on
+screen at once and `url(#…)` would otherwise resolve to whichever identical definition the document
+happens to hold first. `test/client-interaction.test.mjs` compares the drawn path across the seats,
+so "the same mark" is a test result rather than a claim.
 
-Either seat gives you: a project picker (below), scheme / destination / configuration selectors with a
+The two sidebars are alternatives rather than layers: better-sidebar wins when it is there, and the
+official right sidebar is the fallback. Because each service arrives whenever it arrives,
+`syncSeats()` reads both and gives back a seat it has to, so the arrival order cannot leave the panel
+in two places or in none.
+
+Both are reached through `ctx.inject([…], …)` and deliberately **not** through `dsh.client.inject`.
+That list is a hard dependency: naming `dsh-better-sidebar` (or the right sidebar's package) there
+would stop this plugin's client half from loading for anyone who does not have it, which is the
+opposite of having a fallback. All three seats are covered by `test/client-interaction.test.mjs`.
+
+Whichever seat it lands in, the panel gives you: a project picker (below), scheme / destination / configuration selectors with a
 `⟳` beside the destination list that re-reads it on demand, Build / Run / Test / Clean / Archive / Stop,
 a colour-coded streaming log, and a filter bar.
 
@@ -217,7 +238,7 @@ profile where host packages resolve on their own:
 
 ```sh
 npm pack
-dsh plugin --profile web add file:/absolute/path/to/dsh-xcodebuild-0.1.0.tgz
+dsh plugin --profile web add file:/absolute/path/to/dsh-xcodebuild-0.1.1.tgz
 ```
 
 ## Notable behaviour
@@ -612,9 +633,13 @@ npm run test:live  # real build against a real project (slow; needs Xcode)
 - `test/find-projects.test.mjs` builds a synthetic checkout holding exactly the noise a real one
   does — a wrapped `.xcodeproj`, a workspace inside a bundle, `Pods`, `PodCache`, a dot-directory, a
   project past the depth limit — and pins which of them a search may offer.
-- `test/client-interaction.test.mjs` mounts the browser half in jsdom and drives it, in both seats:
-  as a better-sidebar tab (asserting the contributed descriptor and that the header button opens the
-  tab and mirrors it) and as the overlay fallback (open, close, reopen, and commit a filter on blur).
+- `test/client-interaction.test.mjs` mounts the browser half in jsdom and drives it, in all three
+  seats: as a better-sidebar tab (asserting the contributed descriptor and that the header button opens
+  the tab and mirrors it), as a tab of the shell's own right sidebar (asserting the registered type —
+  id, kind, band, title, Guide capsule — that the body renders the docked panel, that the tab names its
+  session, and that the header button goes away), and as the overlay fallback (open, close, reopen, and
+  commit a filter on blur). The two sidebars are also mounted together in both arrival orders, proving
+  the fallback seat is given back when the dock turns out to be in charge.
   It also walks the picker: two candidates are offered, clicking one adopts it, and Change brings the
   choice back. The device list is driven the same way, with a transport that answers late on purpose:
   the cached list and its age are on screen while `-showdestinations` is still running, the command is
