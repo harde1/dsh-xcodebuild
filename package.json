@@ -1,6 +1,6 @@
 {
   "name": "dsh-xcodebuild",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Xcode build and development loop for DeepSeek Harness: build/test/clean/archive/run with a live, filterable build log panel.",
   "author": "chuckliang <harde1@163.com>",
   "keywords": [
@@ -63,6 +63,7 @@
     "lib",
     "cordis.patch.yml",
     "README.md",
+    "CHANGELOG.md",
     "scripts"
   ],
   "scripts": {
