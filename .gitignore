@@ -11,3 +11,8 @@ node_modules/
 # A workspace-local browser-automation toolchain, used to drive the DSH GUI and
 # check that the panel actually renders. Never part of the plugin.
 .tools/
+
+# Local scratch: previews, release-note drafts, session archives, and the npm
+# credentials file used to publish. Ignored by the repository rather than by a
+# local exclude, so a publish token cannot be committed by anyone, on any clone.
+.analysis/
