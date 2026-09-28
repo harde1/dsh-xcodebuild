@@ -15,7 +15,7 @@ Inspired by the SweetPad VS Code extension. The package and composition row keep
 | --- | --- |
 | `xcode_doctor` | What this machine has and what it lacks, with the install command for each gap, plus the Xcode in use. Run this first when a device will not install or launch. |
 | `xcode_project` | Detect a `.xcworkspace` / `.xcodeproj` / `Package.swift`; list schemes, configurations, targets, and any SweetPad defaults in `.vscode/settings.json`. |
-| `xcode_destinations` | `xcodebuild -showdestinations` — simulators, USB devices, My Mac — each with a ready-to-use destination string, plus iOS 16 hardware that `-showdestinations` omits. |
+| `xcode_destinations` | Every channel that can name a device, merged: `-showdestinations` (simulators, My Mac, the hardware Xcode manages) + `xcdevice` (Xcode's own device layer) + `devicectl` (CoreDevice) + the classic USB channel. Each entry carries a ready-to-use destination string, whether it is reachable, and which sources saw it; `recommended` is never an unreachable device. |
 | `xcode_run` | `build` / `test` / `clean` / `archive` / `run`. Streams the full log into a background run and returns the collected compiler errors. `run` installs with `simctl` on a simulator, `devicectl` on a device CoreDevice knows, `ideviceinstaller` + `ios-deploy` on iOS 16 and earlier, and does neither for macOS. |
 | `xcode_log` | The run's log: buffered tail, incremental slice by line number, or a regex-filtered view. Safe to call mid-build. |
 | `xcode_device_log` | The log of a simulator (`simctl spawn`, snapshot or a bounded live window) or of **physical hardware**. On iOS 16 and earlier, pass `bundleId` and the app's **own** per-launch log (`Documents/PPCrashLog/log_<timestamp>.log`) is read out of its sandbox — the file that survives a crash, readable while the device is locked; `mode: "syslog"` gives the live `idevicesyslog` window instead. |
@@ -258,6 +258,27 @@ dsh plugin --profile web add file:/absolute/path/to/dsh-xcodebuild-0.1.1.tgz
 ```
 
 ## Notable behaviour
+
+**Destinations come from four sources, not one.** `xcodebuild -showdestinations` describes what
+Xcode's own layer currently manages, and on a bench where that layer and CoreDevice disagree it stops
+listing a phone that is plugged in, unlocked and buildable — measured on an iPhone 13 running iOS
+26.6.2 under Xcode 26.0.1, where the phone vanished from `-showdestinations` while `xcrun xcdevice
+list` still reported it `available: true`, `devicectl` still reported its tunnel `connected`, and
+`xcodebuild -destination 'platform=iOS,id=<udid>'` still built. On the listing alone the panel offered
+a simulator for a phone sitting on the desk.
+
+So every channel is read and merged by device id — `xcdevice`, `devicectl`, and `idevice_id` on the
+classic channel — mapped into the same record shape, with the sources that saw each device recorded on
+it. Reachability only ever goes *up* in the merge: a channel that cannot see a device has no vote,
+because a lost tunnel is not evidence that the phone is gone. A device nothing can reach stays in the
+list, marked and sorted last, and it can never become the default.
+
+The classic channel is the one that keeps answering when both of Xcode's own layers are wedged, which
+is why it is read last and without a version filter: `needsLegacyChannel` decides which *install*
+channel a run takes, and that decision is made per run from the same version — filtering the *list* by
+version is what previously hid a modern phone on a bench where this was the only channel still seeing
+it.
+
 
 - **Derived data is Xcode's own**, so builds stay warm for Xcode.app as well. Pass
   `derivedDataPath` to redirect it.

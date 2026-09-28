@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.1.3
+
+### Fixed
+
+- **A plugged-in phone is no longer lost when `xcodebuild -showdestinations` omits it.** Measured on
+  an iPhone 13 (iOS 26.6.2) under Xcode 26.0.1: the device disappeared from `-showdestinations` while
+  `xcrun xcdevice list` still reported it available, `devicectl` still reported its tunnel connected,
+  and `xcodebuild -destination id=<udid>` still built — so the panel offered a simulator for a phone
+  on the desk. Destination discovery now merges four channels (`-showdestinations`, `xcdevice`,
+  `devicectl`, the classic USB channel) by device id, records which sources saw each device, and only
+  ever raises reachability: a channel that cannot see a device has no vote.
+
+### Changed
+
+- **The classic channel is no longer filtered to iOS 16 and earlier when listing devices.** That
+  version gate belongs to the install path (`needsLegacyChannel` decides the channel per run), not to
+  discovery, where it hid any modern device that only lockdown could still see.
+- **Reachability leads the destination order**, ahead of "every device before every simulator": paired
+  phones that are not connected sort to the end and show as `(not connected)` in the panel, and the
+  `recommended` default is never an unreachable device.
+
 ## 0.1.2
 
 ### Added

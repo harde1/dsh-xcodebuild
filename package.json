@@ -1,6 +1,6 @@
 {
   "name": "dsh-xcodebuild",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Xcode build and development loop for DeepSeek Harness: build/test/clean/archive/run with a live, filterable build log panel.",
   "author": "chuckliang <harde1@163.com>",
   "keywords": [
@@ -57,7 +57,10 @@
     "./log-tap": "./lib/log-tap.js",
     "./session-files": "./lib/session-files.js",
     "./syslog": "./lib/syslog.js",
-    "./modern-launch": "./lib/modern-launch.js"
+    "./modern-launch": "./lib/modern-launch.js",
+    "./device-sources": {
+      "default": "./lib/device-sources.js"
+    }
   },
   "files": [
     "lib",
@@ -67,7 +70,7 @@
     "scripts"
   ],
   "scripts": {
-    "test": "node test/ring-buffer.test.mjs && node test/classify.test.mjs && node test/destinations.test.mjs && node test/find-projects.test.mjs && node test/list-schemes.test.mjs && node test/client-interaction.test.mjs && node test/device-channel.test.mjs && node test/app-death.test.mjs && node test/legacy-launch.test.mjs && node test/modern-launch.test.mjs && node test/lock-state.test.mjs && node test/log-tap.test.mjs && node test/syslog.test.mjs && node test/session-files.test.mjs && node test/prune-session-files.test.mjs && node test/legacy-applog.test.mjs && node test/beautify.test.mjs && node test/dependencies.test.mjs",
+    "test": "node test/ring-buffer.test.mjs && node test/classify.test.mjs && node test/destinations.test.mjs && node test/device-sources.test.mjs && node test/find-projects.test.mjs && node test/list-schemes.test.mjs && node test/client-interaction.test.mjs && node test/device-channel.test.mjs && node test/app-death.test.mjs && node test/legacy-launch.test.mjs && node test/modern-launch.test.mjs && node test/lock-state.test.mjs && node test/log-tap.test.mjs && node test/syslog.test.mjs && node test/session-files.test.mjs && node test/prune-session-files.test.mjs && node test/legacy-applog.test.mjs && node test/beautify.test.mjs && node test/dependencies.test.mjs",
     "link-host": "node scripts/link-host.mjs",
     "test:mount": "node test/host-mount.test.mjs",
     "test:live": "node test/live-gemoy.mjs"

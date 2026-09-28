@@ -299,6 +299,42 @@ check(sorted[0].placeholder !== true, 'which is a concrete device, not a generic
 eq(destinationString(sorted[sorted.length - 1]), 'platform=macOS,arch=arm64,variant=Designed for iPad',
   'with the Mac destination at the end')
 
+// --- reachability decides order and the default ----------------------------
+//
+// A device every source reports as unreachable is still listed: it is how a
+// paired-but-unplugged phone is found. It must not lead the list, and it must not
+// become the default, or Build lands on a phone that is not on the desk.
+
+const unreachable = dev('iPhone 12', '26.6.2')
+unreachable.available = false
+
+equal(
+  order([unreachable, dev('iPhone X', '16.7.12')]),
+  ['iPhone X', 'iPhone 12'],
+  'a reachable phone leads an unreachable one',
+)
+equal(
+  order([unreachable, simulator('iPhone 17', '26.0.1')]),
+  ['iPhone 17', 'iPhone 12'],
+  'and an unavailable phone does not lead a simulator either',
+)
+
+equal(
+  pickDefaultDestination([unreachable, simulator('iPhone 17', '26.0.1')]),
+  destinationString(simulator('iPhone 17', '26.0.1')),
+  'an unplugged phone falls through to a simulator instead of being recommended',
+)
+equal(
+  pickDefaultDestination([unreachable], unreachable.id),
+  '',
+  'a remembered choice is not offered back once the device is gone',
+)
+equal(
+  pickDefaultDestination([dev('iPhone 12', '26.6.2')], dev('iPhone 12', '26.6.2').id),
+  destinationString(dev('iPhone 12', '26.6.2')),
+  'while a reachable device still wins its own remembered choice',
+)
+
 console.log(`\n${checks - failures}/${checks} checks passed`)
 if (failures > 0) {
   console.error(`${failures} FAILED`)
