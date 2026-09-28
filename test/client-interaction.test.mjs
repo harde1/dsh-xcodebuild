@@ -17,12 +17,15 @@
 
 import { KINDS } from '../lib/classify.js'
 import { createRequire } from 'node:module'
+import { existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 
 const require = createRequire(import.meta.url)
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
-const APP = '/Applications/DSH Desktop.app/Contents/Resources/app/node_modules'
+const APP = ['app', 'app.asar.unpacked']
+  .map((dir) => `/Applications/DSH Desktop.app/Contents/Resources/${dir}/node_modules`)
+  .find((dir) => existsSync(join(dir, 'jsdom'))) ?? '/Applications/DSH Desktop.app/Contents/Resources/app/node_modules'
 const ROUTE_PREFIX = '/_dsh/dsh-xcodebuild/'
 const TAB_ID = 'dsh-xcodebuild'
 
@@ -844,6 +847,105 @@ section('the log follows the tail')
 // =========================================================================
 // Clear empties the output. The filter has its own clear, and it is not this.
 // =========================================================================
+
+section('an app that died is not a run that is still working')
+{
+  // The pill the panel used to show for a crashed launch: `running`, with the dot the
+  // session earns, while the phone held no such process. The host now puts the console's
+  // verdict on the run (`lib/app-death.js`), and this is what the panel does with it.
+  serve({
+    state: () => ({ workspace: '/tmp', activeRunId: 'run-died', runs: [] }),
+    poll: (body) => ({
+      missing: false,
+      lines: body.from === 0
+        ? [
+            { n: 0, k: 'plain', t: 'Launched application with com.example.demo bundle identifier.' },
+            { n: 1, k: 'error', t: '*** Terminating app due to uncaught exception \'NSInvalidArgumentException\'' },
+          ]
+        : [],
+      next: 2,
+      status: 'running',
+      exitCode: null,
+      warningCount: 0,
+      errors: [],
+      durationMs: 4100,
+      note: 'the app crashed on the device (*** Terminating app due to uncaught exception …)',
+      death: { outcome: 'crashed', evidence: 'PROCESS_CRASHED', at: 1, fatal: true },
+    }),
+    detect: (body) => ({ kind: 'workspace', root: '/tmp', location: body.path, name: 'P', schemes: [], configurations: [], sweetpadDefaults: {} }),
+    destinations: () => ({ destinations: [] }),
+  })
+
+  const instance = mount({})
+  const overlay = instance.components.get('dsh-xcodebuild-panel')
+  const toggle = instance.components.get('dsh-xcodebuild-toggle')
+  const { container } = await render([
+    React.createElement(overlay.component, { key: 'overlay' }),
+    React.createElement(toggle.component, { key: 'toggle', sessionId: 'session-died' }),
+  ])
+  await act(async () => {
+    container.querySelector('.xcb-trigger').dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+  })
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 700)) })
+
+  const dot = container.querySelector('.xcb-status .xcb-dot')
+  check(dot !== null, 'the status row has its dot')
+  check(dot !== null && dot.className.includes('failed'),
+    'a dead app shows the failure dot even though the session is still attached',
+    dot === null ? '(no dot)' : dot.className)
+  check(dot !== null && dot.className.includes('running') === false,
+    'and never the dot that means "still working"')
+  check(/app died/.test(container.querySelector('.xcb-status').textContent) === true,
+    'the status row says the app died rather than that the run is running',
+    container.querySelector('.xcb-status').textContent)
+  const note = container.querySelector('.xcb-status .xcb-note')
+  check(note !== null && note.className.includes('died') === true,
+    'the reason is set apart, not left as one faint fact among the quiet ones',
+    note === null ? '(no note)' : note.className)
+  check(note !== null && /crashed on the device/.test(note.textContent) === true,
+    'and it carries the verdict the console gave', note === null ? '(no note)' : note.textContent)
+  // The closed panel is the other place the status is read from.
+  check(container.querySelector('.xcb-trigger .xcb-dot').className.includes('failed') === true,
+    'the header entry shows the same dot with the panel closed')
+
+  // The other half of the rule: an app the user quit is not a failure, and painting it
+  // red would make the panel cry wolf about the most ordinary ending there is.
+  serve({
+    state: () => ({ workspace: '/tmp', activeRunId: 'run-quit', runs: [] }),
+    poll: (body) => ({
+      missing: false,
+      lines: body.from === 0 ? [{ n: 0, k: 'note', t: 'PROCESS_EXITED' }] : [],
+      next: 1,
+      status: 'running',
+      exitCode: null,
+      warningCount: 0,
+      errors: [],
+      durationMs: 8000,
+      note: 'the app exited on the device — the run delivered what its action promised',
+      death: { outcome: 'exited', evidence: 'PROCESS_EXITED', at: 2, fatal: false },
+    }),
+    detect: (body) => ({ kind: 'workspace', root: '/tmp', location: body.path, name: 'P', schemes: [], configurations: [], sweetpadDefaults: {} }),
+    destinations: () => ({ destinations: [] }),
+  })
+  const quit = mount({})
+  const quitOverlay = quit.components.get('dsh-xcodebuild-panel')
+  const quitToggle = quit.components.get('dsh-xcodebuild-toggle')
+  const quitRender = await render([
+    React.createElement(quitOverlay.component, { key: 'overlay' }),
+    React.createElement(quitToggle.component, { key: 'toggle', sessionId: 'session-quit' }),
+  ])
+  await act(async () => {
+    quitRender.container.querySelector('.xcb-trigger').dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+  })
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 700)) })
+  const quitStatus = quitRender.container.querySelector('.xcb-status')
+  const quitDot = quitStatus.querySelector('.xcb-dot')
+  check(quitDot.className.includes('failed') === false, 'an app the user quit is not painted as a failure', quitDot.className)
+  check(/app died/.test(quitStatus.textContent) === false, 'and the row does not claim it died')
+  const quitNote = quitStatus.querySelector('.xcb-note')
+  check(quitNote !== null && quitNote.className.includes('died') === false,
+    'its note stays the ordinary kind', quitNote === null ? '(no note)' : quitNote.className)
+}
 
 section('clear empties the output log, not the filter')
 {

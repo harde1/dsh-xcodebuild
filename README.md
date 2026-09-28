@@ -373,6 +373,26 @@ dsh plugin --profile web add file:/absolute/path/to/dsh-xcodebuild-0.1.1.tgz
   would take the host down with it. `-O/--output` is still not passed — that file is opened only by
   `autoexit` (lldb.py:103-106, ios-deploy.m:1143-1156) and would be an inert flag pretending to capture a
   console — the plugin redirects the child's own stdout and stderr instead.
+- **An app that dies on the phone is a verdict about the run, not a line in its log.** This was a real
+  bug and the ugliest kind: a launch that crashed settled **green**. The settlement asked one question —
+  *did the app ever come up?* — and a crash answers that with a yes, so a crash and the user quitting the
+  app were the same input, and the run kept a note claiming the app was up while the phone held no such
+  process. `lib/app-death.js` is the reader that replaced it: the console's own evidence decides, both
+  channels at once — ios-deploy's markers (whole-line only, because "PROCESS_CRASHED because of reasons"
+  is an app telling its own story), the runtime's last words (`*** Terminating app due to uncaught
+  exception`, `Fatal error:`, `Swift runtime failure:`, `libc++abi: terminating`, a C assertion, dyld
+  refusing to bind), and a debugger stopped on `EXC_…`/`signal SIG…` but **never** on a breakpoint.
+  A death outranks a quieter line that follows it, because ios-deploy reports whichever it saw last and
+  prints the stack trace *under* the marker. Two rules keep it honest: **presence decides, silence never
+  does** (a console that says nothing about the end yields no verdict — an unplugged phone is not a
+  crash), and `PROCESS_STOPPED` counts as a death because ios-deploy only prints it for a stop **with a
+  reason**, which is what keeps an app the system merely suspended out of the set. The panel shows it the
+  moment the console says it — the run keeps streaming, since ending it there would cut off the trace —
+  with a red dot, `app died` where the status row said `running`, and the reason set apart in red. A
+  *clean* exit stays a success and says the app exited, and Stop outranks every marker that follows it:
+  the app died because the panel ended the session, and blaming the app for our own signal would be the
+  same lie in the other direction. `test/app-death.test.mjs` pins the reader, and
+  `test/client-interaction.test.mjs` pins what the panel does with it, in both directions.
 - **The console is pulled into the panel by a separate reader.** `lib/log-tap.js` reads the file the
   launch writes to, every 300ms, and pushes complete lines into the run log the panel already streams:
   a fragment at the end of the file is carried rather than printed, a multi-byte character split across
@@ -653,6 +673,11 @@ npm run test:live  # real build against a real project (slow; needs Xcode)
   (`16.7.12`, iPhone10,3) that exposed it included — and the rule that an unreadable version is never
   routed to the legacy channel, because a wrong guess that way shells out to a toolchain that may not
   be installed at all.
+- `test/app-death.test.mjs` is the reader that tells a dead app from a finished one: ios-deploy's
+  markers as whole lines, the ObjC/Swift/libc++abi crash banners, a debugger stopped on `EXC_BAD_ACCESS`
+  (**and not** on `stop reason = breakpoint 1.1`, which would fail every run that hits a breakpoint), a
+  crash that a later `PROCESS_EXITED` may not downgrade, and the two silences that must stay silent: an
+  app logging *about* crashes, and a console that never mentions the app's end at all.
 - `test/legacy-launch.test.mjs` feeds the launch verdict the exact tail a real iPhone X produced —
   `success`, then `safequit`, then nothing, exit `1` — and asserts it is a failure now that it means a
   session which ended before the app wrote its launch log. Its other half guards the opposite mistake: a
