@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.1.2
+
+### Added
+
+- **The model knows when to use the tools.** A short system-prompt section
+  (`ctx.systemPrompt.section`) routes Xcode work to the `xcode_*` tools instead of
+  raw `xcodebuild`/`simctl`/`devicectl` in the shell, and names the tool for each
+  situation. The full procedure is a runtime skill, `xcode-build-loop`
+  (`ctx.skills.register`), which the model loads only when an Xcode task comes up.
+  Both are optional services, so a profile without them still mounts the tools.
+- **The panel follows runs the model starts.** `xcode_run` tags its run with the
+  calling session's working directory, so the panel on that project adopts it: the
+  log restarts and streams, scheme / configuration / destination follow what is
+  building, and the status row says `by agent`. Stop works on it as on any run.
+
+### Fixed
+
+- **An app that dies after launch fails the run** instead of settling green
+  (`lib/app-death.js`); the panel shows `app died` with the reason.
+
 ## 0.1.1
 
 The first tagged release. `0.1.0` went out with the listing but was never tagged, so
