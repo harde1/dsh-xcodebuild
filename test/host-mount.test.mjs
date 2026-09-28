@@ -78,6 +78,8 @@ function equal(actual, expected, label) {
 const registeredTools = []
 const registeredRoutes = []
 const effectLabels = []
+const promptSections = []
+const registeredSkills = []
 const warnings = []
 const infos = []
 
@@ -111,6 +113,19 @@ function makeCtx() {
       return typeof dispose === 'function' ? dispose : () => {}
     },
     inject(services, callback) {
+      const fakeEffect = (cb, label) => {
+        effectLabels.push(label)
+        const dispose = cb()
+        return typeof dispose === 'function' ? dispose : () => {}
+      }
+      if (services[0] === 'systemPrompt') {
+        callback({ effect: fakeEffect, systemPrompt: { section(section) { promptSections.push(section); return () => {} } } })
+        return
+      }
+      if (services[0] === 'skills') {
+        callback({ effect: fakeEffect, skills: { register(skill) { registeredSkills.push(skill); return () => {} } } })
+        return
+      }
       equal(services, ['webServer', 'connection'], 'routes are mounted behind webServer + connection')
       callback({
         effect: (cb, label) => {
@@ -133,6 +148,14 @@ function makeCtx() {
 }
 
 apply(makeCtx())
+
+// --- model guidance ---------------------------------------------------------
+check(promptSections.length === 1 && promptSections[0].name === 'dsh-xcodebuild', 'one prompt section is registered')
+check(Number.isFinite(promptSections[0]?.order), 'the prompt section has a finite order')
+check(/xcode_run/.test(promptSections[0]?.text ?? '') && /xcode-build-loop/.test(promptSections[0]?.text ?? ''), 'the prompt section routes to the tools and names the skill')
+check(registeredSkills.length === 1 && registeredSkills[0].name === 'xcode-build-loop', 'the xcode-build-loop skill is registered')
+check(/^[a-z][a-z0-9-]*$/.test(registeredSkills[0]?.name ?? ''), 'the skill name is kebab-case')
+check((registeredSkills[0]?.description ?? '').length > 0 && (registeredSkills[0]?.content ?? '').length > 0, 'the skill has a description and a body')
 
 // --- plugin identity ------------------------------------------------------
 

@@ -20,6 +20,22 @@ Inspired by the SweetPad VS Code extension. The package and composition row keep
 | `xcode_log` | The run's log: buffered tail, incremental slice by line number, or a regex-filtered view. Safe to call mid-build. |
 | `xcode_device_log` | The log of a simulator (`simctl spawn`, snapshot or a bounded live window) or of **physical hardware**. On iOS 16 and earlier, pass `bundleId` and the app's **own** per-launch log (`Documents/PPCrashLog/log_<timestamp>.log`) is read out of its sandbox — the file that survives a crash, readable while the device is locked; `mode: "syslog"` gives the live `idevicesyslog` window instead. |
 
+**Model guidance, so the tools are used without being named**
+
+- A short **system-prompt section** (`dsh-xcodebuild`, via `ctx.systemPrompt.section`) is present on
+  every step. It tells the model to use the `xcode_*` tools instead of shelling out to `xcodebuild`,
+  and which tool answers which situation (build errors, a crash after launch, a missing tool).
+- A **runtime skill**, `xcode-build-loop` (via `ctx.skills.register`), holds the full procedure: pick
+  project → scheme → destination, run, read errors, fix, rerun, and read the device log. The model
+  loads it on demand, so the long text costs nothing until an Xcode task comes up.
+
+Both are optional services (`ctx.inject`), so a profile without them still mounts the tools.
+
+**The panel follows the model.** `xcode_run` tags its run with the calling session's working
+directory, so the panel open on that project picks it up within a few seconds of idle polling: it
+clears the old log, streams the new one, matches scheme / configuration / destination to what is
+actually building, and marks the run `by agent`. Stop works on it like on any other run.
+
 **A panel**, in three seats, taking whichever sidebar the shell has:
 
 - **Docked in `dsh-better-sidebar`**, when that plugin is installed — via
