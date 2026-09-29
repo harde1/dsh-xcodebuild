@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.8
+
+### Fixed
+
+- The two commands the cleanup uses are registered in the dependency list (`ps`, `pgrep`, both
+  `ships with macOS`), so the doctor keeps telling the truth about what the plugin runs.
+- The note now names what was cleared: the sentence about a leftover debugger reaching the user was
+  composed but never attached to the failure, so a device that had just been freed looked like an
+  unexplained one.
+
 ## 0.3.6
 
 ### Changed
