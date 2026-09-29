@@ -4,6 +4,15 @@
 
 ### Added
 
+- **A detail pane in the drawer: Lookin's view of one node, without Lookin.** Clicking a view in the
+  tree asks the host about that one view and opens a pane beside it — the control's own `Solo` image
+  and its `Group` image, its frame and bounds, its background colour as a swatch, its layer class and
+  its inheritance chain. `xcode_lldb` gained a `node` op for it: the images come out of the last
+  read's renders held in memory (bounded at 12 MB) and are handed over as data URLs, one view per
+  click, because the tree is text and a screenful of renders is not. The rows are built by the host
+  (`lib/view-details.js`), which is where `recursiveDescription`'s object descriptions — a colour
+  printed either as components or as a dynamic colour's *name*, a layer as another object — are
+  parsed, so they are covered by tests rather than by eye.
 - **The Lookin action appears only where Lookin.app does.** `/Applications/Lookin.app` and
   `~/Applications/Lookin.app` are checked directly, with `mdfind -name Lookin.app` as the fallback
   for an install somewhere unusual, and the answer travels with every read and every state poll.

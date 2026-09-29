@@ -100,6 +100,15 @@ space Lookin's own files use. The class chain is asked of the runtime, one expre
 class, which is why the first read of a session takes a moment longer than the ones after it. Ten
 files are kept.
 
+**A row is a question.** Clicking a view in the tree opens a detail pane beside it: the view's own
+image — `Solo` for the control alone, `Group` for it with its subtree — then the numbers behind it,
+its frame and bounds, its background colour as a swatch, its layer class and the chain of classes it
+inherits from. That is Lookin's window onto a hierarchy, in the drawer, without Lookin installed.
+
+The pane is fetched per click rather than shipped with the tree, because the tree is text and the
+images are not: one view's two renders at a time, parsed by the host, so a colour that comes out the
+wrong shade is a failing test instead of a screenshot someone has to squint at.
+
 **The images are the views' own.** Each node carries the two images Lookin shows, and both are
 rendered *inside* the app, because a screenshot cannot produce either: `solo` is the control alone
 (its sublayers are hidden while its layer is drawn, the way `LookinServer` does it) and `group` is

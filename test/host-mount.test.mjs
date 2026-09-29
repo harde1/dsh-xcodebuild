@@ -266,6 +266,15 @@ const lldbRoute = registeredRoutes.find((route) => route.path.endsWith('/lldb'))
   // The panel decides between "open it in Lookin" and "show it in Finder" from this, so it has to
   // be answered even on the refusal path — and answered as a boolean, not left to be inferred.
   equal(typeof answer.lookinAvailable, 'boolean', 'and it says whether Lookin.app is installed')
+
+  // The detail pane's question: one view, by address, cheap enough to ask per click. Before a read
+  // there is no view to describe, and it has to say that rather than answer about another session.
+  await lldbRoute.handler(fakeRequest({ body: JSON.stringify({ sessionId: 'lookin-none', op: 'node', address: '0x105b17fe0' }) }), res)
+  const node = JSON.parse(res.body)
+  equal(node.ok, false, 'op=node for a view no read has seen is refused')
+  equal(node.address, '0x105b17fe0', 'and names the view it could not describe')
+  equal(Array.isArray(node.rows) && node.rows.length, 0, 'with no rows invented for it')
+  equal(node.image.solo ?? '', '', 'and no image')
   check(/View Hierarchy/.test(String(answer.note)), 'and the refusal names the action that writes the file', res.body)
 }
 

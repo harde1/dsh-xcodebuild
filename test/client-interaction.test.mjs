@@ -2561,6 +2561,18 @@ section('the LLDB drawer')
       if (body.op === 'view') { sessionActive = true; return { ...TREE, lookinAvailable } }
       if (body.op === 'lookin') return { ok: true, path: TREE.lookinPath, note: 'opened in Lookin', session: sessionAt(sessionState) }
       if (body.op === 'command') return { ok: true, note: '', output: '2', session: sessionAt(sessionState) }
+      if (body.op === 'node') {
+        return {
+          ok: true,
+          address: body.address,
+          className: 'Example.StatusLight',
+          // A one-pixel PNG, so the panel is provably rendering the bytes it was handed.
+          image: { solo: 'data:image/png;base64,iVBORw0KGgo=', group: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUg==' },
+          color: { css: 'rgba(255, 0, 0, 0.5)', name: '', raw: '<UIDeviceRGBColor: 0x1; red = 1; green = 0; blue = 0; alpha = 0.5>' },
+          rows: [{ label: 'Class', value: 'Example.StatusLight' }, { label: 'Frame', value: '0, 0  116.667×44' }],
+          note: '',
+        }
+      }
       if (body.op === 'continue') { sessionState = 'running'; return { ok: true, note: 'the app is running again, still attached', session: sessionAt('running') } }
       if (body.op === 'interrupt') { sessionState = 'stopped'; return { ok: true, note: '', session: sessionAt('stopped') } }
       return sessionActive
@@ -2632,6 +2644,30 @@ section('the LLDB drawer')
   const openCall = calls.filter((call) => call.method === 'lldb' && call.body.op === 'lookin').at(-1)
   check(openCall !== undefined, 'clicking it asks the host to open the export')
   equal(openCall.body.open, true, 'and to open it, not merely report where it is')
+
+  // Clicking a row asks about that one view and answers beside the tree: the control's own image
+  // first, then the numbers behind it. This is the Lookin-shaped half of the drawer.
+  await act(async () => {
+    propsOf(container.querySelectorAll('.xcb-lldb-row')[1]).onClick()
+    await new Promise((resolve) => setTimeout(resolve, 60))
+  })
+  const nodeCall = calls.filter((call) => call.method === 'lldb' && call.body.op === 'node').at(-1)
+  check(nodeCall !== undefined, 'clicking a row asks the host about that view')
+  equal(nodeCall.body.address, '0x2', 'naming the row that was clicked')
+  const detail = container.querySelector('.xcb-lldb-detail')
+  check(detail !== null, 'and a detail pane appears beside the tree')
+  check(detail.textContent.includes('Example.StatusLight'), 'naming the view')
+  const shot = detail.querySelector('.xcb-lldb-shot img')
+  check(shot !== null && shot.getAttribute('src') === 'data:image/png;base64,iVBORw0KGgo=',
+    'showing its own image, not a crop of the screen', shot === null ? '(no image)' : shot.getAttribute('src'))
+  check(detail.textContent.includes('0, 0  116.667×44'), 'with the frame from the host')
+  check(detail.querySelector('.xcb-lldb-swatch') !== null, 'and a swatch for its background colour')
+  equal(detail.querySelector('.xcb-lldb-pane') === null, true, 'inside the tree column, not over it')
+  check(container.querySelector('.xcb-lldb-row.picked') !== null, 'and the row it belongs to is marked as picked')
+  const groupTab = detail.querySelector('.xcb-lldb-shot-group')
+  await act(async () => { propsOf(groupTab).onClick() })
+  equal(detail.querySelector('.xcb-lldb-shot img').getAttribute('src'), 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUg==',
+    'the group toggle shows the control with its subtree instead')
 
   // The host that has no Lookin.app must not offer a button claiming to be Lookin: the same slot
   // offers the file itself, and says why in its title. Re-read with the fixture flipped, which is
