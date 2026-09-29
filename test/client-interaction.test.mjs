@@ -2013,6 +2013,70 @@ section('returning to a workspace restores its choices')
 // What is missing is said before it costs a build.
 // =========================================================================
 
+section('a cached list does not outrank the remembered choice')
+{
+  // The panel stores the last destination LIST too, so a return visit can paint something before
+  // `-showdestinations` answers. That cache carries the recommendation of the day — and painting
+  // from it used to overwrite the workspace's own choice, so the host was told to prefer a guess
+  // over explicit intent. Which is exactly what "it stopped remembering my device" looked like.
+  const ROOT = '/tmp/xcb-remember-cached'
+  dom.window.localStorage.clear()
+  dom.window.localStorage.setItem('dsh-xcodebuild:selections', JSON.stringify({
+    [ROOT]: {
+      location: `${ROOT}/App.xcworkspace`,
+      scheme: 'App',
+      destination: 'platform=iOS Simulator,id=CHOSEN',
+      destinations: {
+        scheme: 'App',
+        at: 1,
+        recommended: 'platform=iOS,id=SOME-PHONE',
+        list: [
+          { kind: 'device', id: 'SOME-PHONE', name: 'someone iPhone', placeholder: false, destination: 'platform=iOS,id=SOME-PHONE' },
+          { kind: 'simulator', id: 'CHOSEN', name: 'iPhone 17', placeholder: false, destination: 'platform=iOS Simulator,id=CHOSEN' },
+        ],
+      },
+    },
+  }))
+
+  const calls = serve({
+    state: () => ({ workspace: ROOT, activeRunId: null, runs: [] }),
+    projects: () => ({ root: ROOT, truncated: false, candidates: [{ kind: 'workspace', name: 'App', location: `${ROOT}/App.xcworkspace`, relative: 'App.xcworkspace', depth: 0 }] }),
+    detect: (body) => ({ kind: 'workspace', root: ROOT, location: body.path, name: 'App', schemes: ['App'], configurations: ['Debug'], sweetpadDefaults: {} }),
+    destinations: (body) => ({
+      destinations: [
+        { kind: 'device', id: 'SOME-PHONE', name: 'someone iPhone', placeholder: false, destination: 'platform=iOS,id=SOME-PHONE' },
+        { kind: 'simulator', id: 'CHOSEN', name: 'iPhone 17', placeholder: false, destination: 'platform=iOS Simulator,id=CHOSEN' },
+      ],
+      // The host honours what the panel asks for, which is the point: the panel has to ask.
+      recommended: body.preferred || 'platform=iOS,id=SOME-PHONE',
+    }),
+  })
+
+  const instance = mount({})
+  const overlay = instance.components.get('dsh-xcodebuild-panel')
+  const toggle = instance.components.get('dsh-xcodebuild-toggle')
+  const { container } = await render([
+    React.createElement(overlay.component, { key: 'overlay' }),
+    React.createElement(toggle.component, { key: 'toggle' }),
+  ])
+  await act(async () => {
+    container.querySelector('.xcb-trigger').dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+  })
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 30)) })
+  const path = container.querySelector('.xcb-input.path')
+  await act(async () => { propsOf(path).onChange({ target: { value: ROOT } }) })
+  await act(async () => {
+    propsOf(path).onBlur()
+    await new Promise((resolve) => setTimeout(resolve, 50))
+  })
+
+  equal(calls.find((call) => call.method === 'destinations')?.body.preferred,
+    'platform=iOS Simulator,id=CHOSEN',
+    'the panel asks the host for the workspace choice, not for the cached recommendation')
+  equal(container.querySelector('.xcb-select.dest')?.value, 'platform=iOS Simulator,id=CHOSEN',
+    'and the control shows the choice that was remembered')
+}
+
 section('a missing device tool is named, with the command that installs it')
 {
   const report = (missingRequired, missingOptional, tools) => ({

@@ -115,6 +115,56 @@ for (const d of list) {
   check(!s.includes('['), `destination string for ${d.name} has no bracket (xcodebuild rejects brackets)`, s)
 }
 
+// --- the destination a workspace used last time ---------------------------
+//
+// This is what makes returning to a workspace feel like returning: the panel hands the
+// remembered destination string back as `preferred`, and the host has to honour it. The
+// branch had no test, which is how it broke — a remembered SIMULATOR was skipped, because
+// a shut-down simulator is marked `available: false`, and the panel fell back to a
+// recommendation that was not what the user chose.
+
+const rememberedSimulator = {
+  kind: 'simulator',
+  platform: 'iOS Simulator',
+  os: '26.0',
+  name: 'iPhone 17 Pro',
+  id: 'D74ACEDA-BED8-4FED-9B91-256B7C2A357B',
+  arch: 'arm64',
+  variant: '',
+  available: false,
+}
+eq(
+  pickDefaultDestination([rememberedSimulator, { kind: 'device', platform: 'iOS', id: '00008110-00007824AAAA801E', name: 'Chuck iPhone', arch: 'arm64', variant: '' }],
+    'platform=iOS Simulator,id=D74ACEDA-BED8-4FED-9B91-256B7C2A357B'),
+  'platform=iOS Simulator,id=D74ACEDA-BED8-4FED-9B91-256B7C2A357B',
+  'a remembered simulator is honoured even while it is shut down',
+)
+eq(
+  pickDefaultDestination([rememberedSimulator], rememberedSimulator.id),
+  'platform=iOS Simulator,id=D74ACEDA-BED8-4FED-9B91-256B7C2A357B',
+  'and it matches by id as well as by destination string',
+)
+eq(
+  pickDefaultDestination([rememberedSimulator], `  ${destinationString(rememberedSimulator)}  `),
+  destinationString(rememberedSimulator),
+  'a remembered string with stray whitespace is still the same destination',
+)
+eq(
+  pickDefaultDestination([
+    { kind: 'simulator', platform: 'iOS Simulator', id: 'S', name: 'iPhone SE', arch: 'arm64', variant: '', available: true },
+  ], 'platform=iOS Simulator,id=GONE'),
+  'platform=iOS Simulator,id=S',
+  'a destination that is no longer in the list falls through instead of being invented',
+)
+eq(
+  pickDefaultDestination([
+    { kind: 'device', platform: 'iOS', id: 'dvtdevice-DVTiPhonePlaceholder-iphoneos:placeholder', placeholder: true, name: 'Any iOS Device', arch: 'arm64', variant: '' },
+    { kind: 'simulator', platform: 'iOS Simulator', id: 'S', name: 'iPhone SE', arch: 'arm64', variant: '', available: true },
+  ], 'platform=iOS,id=dvtdevice-DVTiPhonePlaceholder-iphoneos:placeholder'),
+  'platform=iOS Simulator,id=S',
+  'the generic placeholder is never what a remembered choice resolves to',
+)
+
 // --- edge cases -----------------------------------------------------------
 
 eq(parseDestinations('').length, 0, 'empty input yields nothing')

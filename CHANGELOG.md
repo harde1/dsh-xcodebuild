@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.3.1
+
+### Fixed
+
+- **A workspace stopped restoring the device you chose.** Two separate causes, both of which
+  replaced an explicit choice with a guess, and both now have tests — the host's `preferred` branch
+  had none at all, which is how the first one survived.
+
+  1. `pickDefaultDestination` refused to honour a remembered destination whose record said
+     `available: false`. A **shut-down simulator** is exactly that, and Xcode starts one on demand —
+     so the panel forgot the simulator the moment it was shut down and fell back to the
+     recommendation. Reachability is now asked of the source rather than of the choice: an
+     unavailable simulator is still a destination, an unreachable phone still falls through.
+  2. The panel stores the last destination LIST as well, so a return visit can paint before
+     `-showdestinations` answers. That cache carries the recommendation of the day, and painting
+     from it overwrote `state.destination` with that guess — which then travelled to the host as
+     `preferred`. On every return visit the host was therefore told to prefer the guess over the
+     workspace's own choice. The remembered choice now wins whenever it is still in the cached
+     list; only a choice that is gone falls through to the recommendation, as before.
+
 ## 0.3.0
 
 ### Added
