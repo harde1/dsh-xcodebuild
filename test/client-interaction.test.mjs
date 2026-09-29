@@ -273,22 +273,13 @@ section('with better-sidebar')
     'the overlay fallback and the header button are still registered')
   check(panel !== undefined && toggle !== undefined, 'both seats filled')
 
-  equal(instance.registered.length, 2, 'two tab types are contributed: the build panel and the Lookin mirror')
+  equal(instance.registered.length, 1, 'exactly one tab type is contributed')
   const descriptor = instance.registered[0]
   equal(descriptor.id, TAB_ID, 'the tab id matches the type the button opens')
   equal(descriptor.single, true, 'the tab is single-instance, so opening focuses rather than duplicates')
   check(typeof descriptor.component === 'function', 'the descriptor renders the panel itself')
   check(typeof descriptor.title === 'string' || typeof descriptor.title === 'function', 'the descriptor is titled')
   check(typeof descriptor.description === 'string', 'the descriptor describes itself for the new-tab list')
-
-  // The second tab is a different subject — another application's window, not a build — so it
-  // needs its own id, its own body and its own name, and a shell must never confuse the two.
-  const mirror = instance.registered[1]
-  equal(mirror.id, 'dsh-xcodebuild-lookin', 'the second tab is the Lookin mirror, under an id of its own')
-  equal(mirror.title, 'Lookin', 'named for what it shows')
-  equal(mirror.single, true, 'also single-instance')
-  check(typeof mirror.component === 'function', 'rendering the mirror itself')
-  check(mirror.id !== descriptor.id, 'told apart from the build panel by id, not by position in the list')
 
   // Polling has to outlive the panel being closed, so it belongs to the overlay
   // entry, which is always mounted, and not to the panel.
@@ -538,11 +529,9 @@ section('with the official right sidebar and no better-sidebar')
   const instance = mount({ sidebarRight: true })
   equal(instance.registered.length, 0, 'nothing is contributed to a dock the shell does not have')
   equal(instance.liveSeats, ['shell.overlay', 'conversation.session.header.utilities',
-    'sidebar.right.pane.tab', 'sidebar.right.pane.tab.title',
     'sidebar.right.pane.tab', 'sidebar.right.pane.tab.title'],
-    'the fallback seats stay, and the official sidebar gets both tab bodies and their chips')
-  equal(instance.rightLive, ['dsh-xcodebuild', 'dsh-xcodebuild-lookin'],
-    'both tab types are held by the official sidebar')
+    'the fallback seats stay, and the official sidebar gets the tab body and its chip')
+  equal(instance.rightLive, ['dsh-xcodebuild'], 'exactly one tab type is held by the official sidebar')
 
   const type = instance.rightTypes[0]
   equal(type.id, 'dsh-xcodebuild', 'the type id is the plugin id, which is also the body seat key')
@@ -552,17 +541,6 @@ section('with the official right sidebar and no better-sidebar')
   equal(type.guide.length, 1, 'with one Guide capsule: that is how a shell with no dock discovers it')
   equal(type.guide[0].title(), 'XcBuild', 'named the same there')
   equal(typeof type.guide[0].description(), 'string', 'and described for the Guide')
-
-  // The mirror is a second type in the same registry. Its kind has to differ: the registry keeps
-  // one type in force per kind, so sharing one would have the two tabs overwrite each other —
-  // which is the bug this asserts against.
-  const mirrorType = instance.rightTypes[1]
-  equal(mirrorType.id, 'dsh-xcodebuild-lookin', 'the mirror holds a type of its own')
-  check(mirrorType.kind !== type.kind, 'under a kind of its own, so neither type displaces the other')
-  equal(mirrorType.title(), 'Lookin', 'titled for the window it shows')
-  equal(mirrorType.guide.length, 1, 'with its own Guide capsule')
-  check(instance.bySeat.get('sidebar.right.pane.tab#dsh-xcodebuild-lookin') !== undefined,
-    'and a body seat the shell can dispatch that kind to')
 
   const body = instance.bySeat.get('sidebar.right.pane.tab#dsh-xcodebuild')
   const chip = instance.bySeat.get('sidebar.right.pane.tab.title#dsh-xcodebuild')
@@ -595,111 +573,22 @@ section('with the official right sidebar and no better-sidebar')
   check(fallback.container.querySelector('.xcb-trigger') !== null, 'with neither sidebar, the button is drawn')
 }
 
-// =========================================================================
-// The Lookin mirror: what it asks the host for, and — the part worth pinning —
-// what it does NOT ask for. A capture on a tab with nothing to capture is a
-// `screencapture` process three times a second for nobody.
-// =========================================================================
-
-section('the Lookin mirror asks for its state, and for no frame while there is no window')
-{
-  const windowless = {
-    app: '/Applications/Lookin.app',
-    pid: 4312,
-    running: true,
-    window: null,
-    permissions: { accessibility: false, screenCapture: true, frontmostPid: 1 },
-    permissionNote: 'Clicking through needs Accessibility for the process that posts the events.',
-    helperError: '',
-    lastLookinPath: '/Users/mac/Library/Caches/dsh-lookin/tree.lookin',
-    reason: 'no-window',
-  }
-  const calls = serve({ lookinState: () => windowless })
-  const instance = mount({ sidebarRight: true })
-  const body = instance.bySeat.get('sidebar.right.pane.tab#dsh-xcodebuild-lookin')
-  check(body !== undefined, 'the mirror has a body seat of its own')
-
-  const view = await render([React.createElement(body.component, { key: 'mirror', sessionId: 'session-gemoy' })])
-  check(calls.some((call) => call.method === 'lookinState'), 'the pane reads the window state on mount')
-  check(calls.some((call) => call.method === 'lookinState' && call.body.sessionId === 'session-gemoy'),
-    'naming the session it was opened in, like the panel does')
-  equal(calls.filter((call) => call.method === 'lookinFrame').length, 0,
-    'and asks for no frame at all when there is no window to mirror')
-  check(view.container.textContent.includes('no window to mirror'),
-    'saying so on screen rather than showing an empty frame', view.container.textContent.slice(0, 160))
-  check(view.container.textContent.includes('Accessibility'),
-    'and passing on the grant that is missing, which is the one thing the user has to change')
-  await act(async () => { view.root.unmount() })
-}
-
-section('and it mirrors the window once there is one')
-{
-  const window_ = {
-    id: 1633, x: 200, y: 908, width: 420, height: 332, pid: 4312, owner: 'Lookin', title: 'Lookin',
-  }
-  const state = {
-    app: '/Applications/Lookin.app',
-    pid: 4312,
-    running: true,
-    window: window_,
-    permissions: { accessibility: false, screenCapture: true, frontmostPid: 1 },
-    permissionNote: '',
-    helperError: '',
-    lastLookinPath: null,
-    reason: '',
-  }
-  const calls = serve({
-    lookinState: () => state,
-    lookinFrame: () => ({
-      ok: true, windowId: 1633, width: 420, height: 332, jpeg: 'AAP/', bytes: 3, takenAt: 1, state,
-    }),
-    // A click is refused by the host while the grant is missing, and the pane has to say so
-    // rather than look like it worked.
-    lookinInput: () => ({ ok: false, reason: 'accessibility', state }),
-  })
-  const instance = mount({ sidebarRight: true })
-  const body = instance.bySeat.get('sidebar.right.pane.tab#dsh-xcodebuild-lookin')
-  const view = await render([React.createElement(body.component, { key: 'mirror', sessionId: 's1' })])
-
-  check(calls.some((call) => call.method === 'lookinFrame'), 'the pane asks for a frame')
-  const img = view.container.querySelector('.xcb-lookin-img')
-  check(img !== null, 'and draws it')
-  equal(img?.getAttribute('src'), 'data:image/jpeg;base64,AAP/',
-    'from the bytes the host sent, as a data URL so the browser cannot serve a stale frame')
-
-  // The pointer is forwarded as a fraction of the image, which is what survives the 2x capture
-  // and whatever width the pane happens to be. A click in the middle of the box is 0.5, 0.5 of
-  // the window — and jsdom lays nothing out, so the box has to be given a size to divide by.
-  img.getBoundingClientRect = () => ({ left: 0, top: 0, width: 420, height: 332, right: 420, bottom: 332, x: 0, y: 0 })
-  const box = propsOf(img)
-  box.onMouseDown({ clientX: 210, clientY: 166 })
-  box.onMouseUp({ clientX: 210, clientY: 166 })
-  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)) })
-  const sent = calls.find((call) => call.method === 'lookinInput')
-  check(sent !== undefined, 'a click in the image is forwarded')
-  equal(sent?.body.kind, 'click', 'as a click')
-  check(Math.abs(sent?.body.fx - 0.5) < 0.001 && Math.abs(sent?.body.fy - 0.5) < 0.001,
-    'carrying the middle of the window as a fraction, not as a pixel', JSON.stringify(sent?.body))
-  await act(async () => { view.root.unmount() })
-}
-
 section('both sidebars: better-sidebar keeps the panel, the official seat is given back')
 {
   const instance = mount({ dock: {}, sidebarRight: true })
-  equal(instance.registered.length, 2, 'both dock tabs are registered')
-  // The official service answered first here, so the fallback seats really were taken
-  // — and the dock's arrival is what has to take them back.
-  equal(instance.rightTypes.length, 2, 'the official seats were taken while it was the only sidebar')
-  equal(instance.rightLive, [], 'and are not held once the dock turns out to be in charge')
+  equal(instance.registered.length, 1, 'the dock tab is registered')
+  // The official service answered first here, so the fallback seat really was taken
+  // — and the dock's arrival is what has to take it back.
+  equal(instance.rightTypes.length, 1, 'the official seat was taken while it was the only sidebar')
+  equal(instance.rightLive, [], 'and is not held once the dock turns out to be in charge')
   equal(instance.liveSeats, ['shell.overlay', 'conversation.session.header.utilities'],
     'so the header/overlay fallback is what is left, with no body seat behind it')
   check(instance.givenBack.includes('dsh-xcodebuild'), 'the type it had registered was given back')
-  check(instance.givenBack.includes('dsh-xcodebuild-lookin'), 'and so was the mirror type')
-  check(instance.givenBack.includes('sidebar.right.pane.tab'), 'and the body seats with it')
+  check(instance.givenBack.includes('sidebar.right.pane.tab'), 'and so was the body seat')
 
   section('and the other arrival order settles the same way')
   const reversed = mount({ dock: {}, sidebarRight: true, seatOrder: ['betterSidebar', 'sidebarRightTabs'] })
-  equal(reversed.registered.length, 2, 'both dock tabs are registered')
+  equal(reversed.registered.length, 1, 'the dock tab is registered')
   equal(reversed.rightTypes.length, 0, 'the official sidebar is never registered with')
   equal(reversed.givenBack.length, 0, 'and nothing had to be given back, because nothing was taken')
 }
