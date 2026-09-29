@@ -2709,6 +2709,11 @@ section('the LLDB drawer')
   check(openCall !== undefined, 'clicking it asks the host to open the export')
   equal(openCall.body.open, true, 'and to open it, not merely report where it is')
 
+  // A dump stops the app, so the panel asks the host to let it go again as soon as the tree is in
+  // hand: a frozen phone is a side effect of debugging, not something the user asked for.
+  const readCall = calls.filter((call) => call.method === 'lldb' && call.body.op === 'view').at(-1)
+  equal(readCall?.body.continue, true, 'a read asks the host to let the app run again afterwards')
+
   // Clicking a row asks about that one view and answers beside the tree: the control's own image
   // first, then the numbers behind it. This is the Lookin-shaped half of the drawer.
   await act(async () => {

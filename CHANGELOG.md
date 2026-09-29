@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.3.6
+
+### Changed
+
+- **A read lets the app run again afterwards.** A dump stops the app — it has to, the layers are only
+  readable in that state — but a frozen app is a side effect of debugging rather than something
+  anyone asked for, and reading the tree is usually the only reason it was stopped. The app is now
+  resumed the moment the tree is in hand, and the result carries `continued` saying whether it is
+  running again. Best effort on purpose: a debugger that has already gone cannot be told to continue,
+  and that must not turn a good tree into a failed read. `continue: false` keeps the app stopped for
+  a caller that wants to poke at it, and the drawer's `Interrupt` does the same by hand at any time.
+
 ## 0.3.5
 
 ### Fixed
