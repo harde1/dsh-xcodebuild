@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.3.4
+
+### Fixed
+
+- **The plugin now picks its debugger instead of trusting `xcrun`.** It ran `xcrun lldb` and nothing
+  else, and `xcrun` follows `xcode-select`: with the Command Line Tools selected, the lldb it finds
+  has no iOS device support at all — it starts, cannot do the one thing it was asked for, and exits,
+  which reads as `lldb exited (status dead)` while the good debugger inside Xcode.app sits untouched
+  on the same disk. Candidates are now listed — Xcode's own lldb first, `xcrun lldb` after it, the
+  Command Line Tools' lldb last and labelled *simulators only* — and each is TRIED
+  (`lldb --version`, short timeout) so that present and working are not confused. The first that
+  answers is used; the ones that failed are kept so a failure can name what was tried. With only the
+  Command Line Tools installed, a device read says so instead of pretending.
+
 ## 0.3.3
 
 ### Fixed
