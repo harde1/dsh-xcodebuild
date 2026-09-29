@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.2.2
+
+### Fixed
+
+- **The debugger finds the app before attaching to it, instead of waiting for it.**
+  `device process attach -n <name>` does not mean "attach to the process with this name" — it means
+  "wait for a process with this name to appear", and it holds LLDB's command interpreter while it
+  waits. Measured on an iPhone 13: a View Hierarchy press for an app that was not running left the
+  transcript at `device process attach -n 蜜语-Dev` with no answer at all, not even to the
+  `process status` probe sent eight seconds later, because the probe was queued behind it. The
+  drawer never filled in, and the session could not be interrupted out of it either. The pid is now
+  resolved first from what is actually running — `devicectl device info processes` on hardware,
+  `simctl spawn launchctl list` on a simulator — and the attach is by pid, so an app that is not
+  running becomes one sentence naming what is missing, in 0.3 s instead of never. A pid taken from a
+  run that has since restarted is retried once after re-resolving.
+- **Build & Run boots a simulator that is not booted.** `simctl install` on a Shutdown device fails
+  with "Unable to lookup in current state: Shutdown", and Xcode boots it for you; `simctl
+  bootstatus -b` now runs first, about ten seconds cold and nothing when the device is already up.
+
 ## 0.2.1
 
 ### Added
