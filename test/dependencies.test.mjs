@@ -118,7 +118,7 @@ for (const entry of legacy) {
   check(LEGACY_TOOLCHAIN_INSTALL.includes(entry.install.split(' ').pop()),
     `${entry.command}'s formula appears in the combined install command`, LEGACY_TOOLCHAIN_INSTALL)
 }
-check(legacy.length === 5, 'the classic channel is the whole optional set', `${legacy.length} entries`)
+check(legacy.length === 6, 'the classic channel is the whole optional set', `${legacy.length} entries`)
 
 const readability = optional.filter((entry) => entry.group === READABILITY_GROUP)
 equal(readability.map((entry) => entry.command), ['xcbeautify'],

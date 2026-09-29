@@ -18,7 +18,7 @@ Inspired by the SweetPad VS Code extension. The package and composition row keep
 | `xcode_destinations` | Every channel that can name a device, merged: `-showdestinations` (simulators, My Mac, the hardware Xcode manages) + `xcdevice` (Xcode's own device layer) + `devicectl` (CoreDevice) + the classic USB channel. Each entry carries a ready-to-use destination string, whether it is reachable, and which sources saw it; `recommended` is never an unreachable device. |
 | `xcode_run` | `build` / `test` / `clean` / `archive` / `run`. Streams the full log into a background run and returns the collected compiler errors. `run` installs with `simctl` on a simulator, `devicectl` on a device CoreDevice knows, `ideviceinstaller` + `ios-deploy` on iOS 16 and earlier, and does neither for macOS. |
 | `xcode_log` | The run's log: buffered tail, incremental slice by line number, or a regex-filtered view. Safe to call mid-build. |
-| `xcode_lldb` | Debug the app this workspace last ran. `view-hierarchy` attaches LLDB to it, stops it, returns the key window's view tree (class, frame, text, hidden, stack-view attributes) **and writes the same tree as a `.lookin` file Lookin.app opens**; `lookin` opens that file; `command` runs any raw LLDB command (`po`, `bt`, `breakpoint set`, `expression`) in the same session; `attach` / `interrupt` / `detach` / `status` manage that session. |
+| `xcode_lldb` | Debug the app this workspace last ran. `view-hierarchy` attaches LLDB to it, stops it, returns the key window's view tree (class, frame, text, hidden, stack-view attributes) **and writes the same tree, with a screenshot cropped per view, as a `.lookin` file Lookin.app opens**; `lookin` opens that file; `command` runs any raw LLDB command (`po`, `bt`, `breakpoint set`, `expression`) in the same session; `attach` / `interrupt` / `detach` / `status` manage that session. |
 | `xcode_device_log` | The log of a simulator (`simctl spawn`, snapshot or a bounded live window) or of **physical hardware**. On iOS 16 and earlier, pass `bundleId` and the app's **own** per-launch log (`Documents/PPCrashLog/log_<timestamp>.log`) is read out of its sandbox — the file that survives a crash, readable while the device is locked; `mode: "syslog"` gives the live `idevicesyslog` window instead. |
 
 **Model guidance, so the tools are used without being named**
@@ -97,8 +97,17 @@ and hidden flag — the frames are the same superview-relative numbers the panel
 space Lookin's own files use. The class chain is asked of the runtime, one expression per distinct
 class, which is why the first read of a session takes a moment longer than the ones after it. Ten
 files are kept.
-Screenshots are not in this version: a `.lookin` carries them, and Lookin shows an image-less tree
-perfectly well.
+
+**Screenshots, cropped per view.** Each export takes one capture of the screen — `simctl io
+screenshot` on a simulator, `idevicescreenshot` on hardware — and crops it once per view, because
+that is what Lookin shows beside the tree: the selected view's pixels and the dictionary its
+preview pane looks images up in. Crops of views thinner or shorter than 8 points are skipped, every
+crop is resampled to at most 480 pixels on its long side, and the file keeps a real tree's worth of
+images from becoming a hundred megabytes. A crop that fails (a locked device, a missing
+libimobiledevice tool) leaves the tree intact and says so instead of failing the dump.
+
+One capture cannot separate a view from its subviews, so each node offers the honest crop of what
+is on screen for both its solo and its group image rather than one of the two being a fiction.
 
 Measured on an iPhone 13 (iOS 26.6.2) under Xcode 26.0.1, because these are the facts the
 implementation is shaped around:

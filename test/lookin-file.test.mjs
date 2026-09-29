@@ -10,6 +10,7 @@
 // Run: node test/lookin-file.test.mjs
 import {
   LOOKIN_SERVER_VERSION,
+  absoluteFrames,
   buildLookinFile,
   classChainExpression,
   lookinArchiveName,
@@ -115,6 +116,58 @@ section('what a dump cannot answer is left empty, not invented')
   eq(window.subitems[1].viewObject.oid, 0, 'a malformed address is not parsed into a number')
   eq(file.hierarchyInfo['2']['5'], '', 'an empty app header is still a header')
   eq(file.hierarchyInfo['2'].screenScale.$real, 0, 'and unknown screen numbers are 0, which Lookin renders unscaled')
+}
+
+section('screenshots are attached the way Lookin stores them')
+{
+  // Two nodes, one crop each: the window's and the label's.
+  const shots = {
+    [String(Number.parseInt('101607b40', 16))]: Buffer.from('89504e470d0a1a0a', 'hex'),
+    [String(Number.parseInt('10141a3d0', 16))]: Buffer.from('89504e470d0a1a0a0203', 'hex'),
+  }
+  const file = buildLookinFile(RECORDS, { images: shots })
+  const root = file.hierarchyInfo['1'][0]
+  const light = root.subitems[0].subitems[0]
+
+  eq(root.screenshotEncodeType, 1, 'a node with a crop says its image is NSData (1)')
+  eq(root.soloScreenshot, light.soloScreenshot === null ? 'x' : root.soloScreenshot, 'and carries the crop')
+  eq(root.soloScreenshot.$data.length, 8, 'as the PNG bytes handed in')
+  eq(light.screenshotEncodeType, 1, 'the label has one too')
+  eq(light.soloScreenshot.$data.length, 10, 'its own bytes')
+
+  // A node with no crop must not claim one, or Lookin draws an empty image where it has none.
+  const bare = buildLookinFile(RECORDS).hierarchyInfo['1'][0]
+  eq(bare.screenshotEncodeType, 0, 'a node with no crop says so')
+  eq(bare.soloScreenshot, null, 'and carries none')
+  eq(buildLookinFile(RECORDS).soloScreenshots, null, 'a file with no crops has no screenshot dictionary')
+
+  const dict = file.soloScreenshots
+  eq(dict.$class, 'NSDictionary', 'the screenshot dictionary is an NSDictionary')
+  eq(dict['NS.keys'].$inline.map((key) => key.$number).sort((a, b) => a - b), Object.keys(shots).map(Number).sort((a, b) => a - b), 'keyed by oid')
+  eq(dict['NS.objects'].$inline.length, 2, 'with one entry per image')
+  eq(file.groupScreenshots['NS.objects'].$inline.length, 2, 'and the group dictionary agrees')
+  // NSDictionary's decoder will not take an NSArray OBJECT for NS.keys/NS.objects — it wants
+  // plist arrays, which is exactly what a real NSKeyedArchiver writes for a dictionary.
+  eq(toArchiveXml(file).includes('<key>NS.objects</key><array>'), true, 'and both lists are plain plist arrays')
+
+  const xml = toArchiveXml(file)
+  // NSData is a plist <data>; a dictionary key has to be an OBJECT, which is a bare number in
+  // the object table referenced by UID — not an inline integer.
+  check(/<data>[A-Za-z0-9+/=]+<\/data>/.test(xml), 'image bytes are written as plist data')
+  check(xml.includes('<key>NS.keys</key>'), 'and the dictionary keeps its NS.keys/NS.objects shape')
+  // The very same buffer is referenced by both screenshot fields and by both dictionaries;
+  // a real tree is tens of megabytes, so it has to be written once.
+  eq((xml.match(/<data>/g) ?? []).length, 2, 'each image is written exactly once however often it is referenced')
+}
+
+section('frames for a cropper are absolute, even though the file keeps them relative')
+{
+  const frames = absoluteFrames(RECORDS)
+  eq(frames.length, 3, 'one entry per view')
+  eq(frames[0].frame, { x: 0, y: 0, width: 390, height: 844 }, 'the window sits at the origin')
+  eq(frames[1].frame, { x: 12, y: 55, width: 366, height: 747 }, 'the stack view keeps its own offset')
+  eq(frames[2].frame, { x: 12, y: 59, width: 116.667, height: 44 }, 'and the label carries its ancestors with it')
+  eq(frames[2].oid, Number.parseInt('10141a3d0', 16), 'each entry is keyed by the oid the images use')
 }
 
 section('the keys Lookin decodes with, not the ones its properties are named')

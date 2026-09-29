@@ -35,7 +35,27 @@
   file with the classes that will read it. Its classes now decode the whole tree — every node, its
   class chain, frame, alpha, hidden flag and label text — with no unarchiver error. `layerObject` is
   still left nil, because a text dump names the view's class and says nothing about its layer.
-  Screenshots are not in this version.
+
+  **Screenshots.** Each export captures the screen once — `xcrun simctl io screenshot` on a
+  simulator, `idevicescreenshot` on hardware — and crops it per view with `sips`, which is the one
+  crop tool that needs no library and no compiled helper. The crop offsets were checked the only way
+  that settles it: cropping a view's computed rectangle and comparing it against the same region
+  taken out of the capture pixel by pixel — 0 of 115668 pixels differ, while a centre crop of the
+  same size differs in 115610. Frames are relative and a capture is absolute, so this is also what
+  proves the walk that turns one into the other.
+
+  The images landed in the same three shapes the real files use, and each was measured rather than
+  assumed: PNG bytes as plist `<data>`; the two `oid -> image` dictionaries as `NS.keys`/`NS.objects`
+  **plist arrays** with the oids as bare numbers in the object table (NSKeyedUnarchiver reads them
+  back as NSNumber, and refuses an NSArray *object* there — "value for key (NS.objects) is not an
+  array"); and the same crop offered as both a node's solo and its group image. A real capture cannot
+  separate a view from its subviews, so one of those two would otherwise be a fiction.
+
+  Bounded on purpose: crops below 8 points are skipped, every crop is resampled to at most 480 pixels
+  on its long side, at most 200 nodes are cropped, and the same buffer referenced from the item, its
+  sibling field and both dictionaries is written to the archive exactly once. 31 crops of a 33-node
+  tree make a 605 KB file instead of tens of megabytes. A capture that fails — a locked device, a
+  missing tool — leaves the tree intact and reports itself beside the file.
 
 
 ## 0.2.3
