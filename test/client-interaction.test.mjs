@@ -2883,6 +2883,58 @@ section('the LLDB drawer')
     'which asks for the tree by launching the app under the debugger')
   equal(fourthRender.container.querySelectorAll('.xcb-lldb-row').length, 4, 'and the tree arrives')
 
+  // An app that refuses debuggers is a different failure with no takeover to offer. 蜜语-Dev is
+  // one: 90 s of attaching and not one line back, because the build carries an anti-debugging
+  // guard. Offering "Take over" there would relaunch the app straight into the same refusal.
+  serve({
+    state: () => ({ workspace: '/tmp', activeRunId: null, runs: [] }),
+    doctor: () => ({ tools: [], missingRequired: [] }),
+    projects: () => ({ root: '/tmp', truncated: false, candidates: [] }),
+    detect: (body) => ({ kind: 'workspace', root: '/tmp', location: body.path, name: 'P', schemes: [], configurations: [], sweetpadDefaults: {} }),
+    destinations: () => ({ destinations: [] }),
+    lldb: (body) => (body.op === 'view'
+      ? {
+          ok: false,
+          refused: true,
+          note: 'attached but the process never stopped: still attaching after 90105 ms. LLDB said nothing at all, which is what an app that refuses a debugger looks like: a build with an anti-debugging guard (ptrace PT_DENY_ATTACH, or a check of its own) cannot be attached to at all — and taking it over with mode=launch cannot help either. 蜜语-Dev is not the plugin failing to read it',
+          remedies: ['build without the guard, and debug that build'],
+          session: null,
+        }
+      : { active: false, session: null, next: 0, firstAvailable: 1, lines: [] }),
+  })
+  const guarded = mount({})
+  const guardedRender = await render([
+    React.createElement(guarded.components.get('dsh-xcodebuild-panel').component, { key: 'overlay' }),
+    React.createElement(guarded.components.get('dsh-xcodebuild-toggle').component, { key: 'toggle', sessionId: 'lldb-guarded' }),
+  ])
+  await act(async () => {
+    guardedRender.container.querySelector('.xcb-trigger').dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+  })
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 700)) })
+  // Two clicks: the trigger opens the panel, the drawer's own handle opens the drawer.
+  await act(async () => {
+    guardedRender.container.querySelector('.xcb-lldb-toggle').dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+  })
+  await act(async () => {
+    propsOf(Array.from(guardedRender.container.querySelectorAll('.xcb-btn')).find((node) => node.textContent === 'View Hierarchy')).onClick()
+    await new Promise((resolve) => setTimeout(resolve, 80))
+  })
+  const guardedButtons = Array.from(guardedRender.container.querySelectorAll('.xcb-btn'))
+  check(guardedButtons.every((node) => node.textContent !== 'Take over'),
+    'an app that refuses debuggers is not offered a takeover that would be refused too')
+  const guardedNotes = Array.from(guardedRender.container.querySelectorAll('.xcb-lldb-note, .xcb-lldb-error'))
+    .map((node) => node.textContent)
+  check(guardedNotes.some((text) => text.includes('anti-debugging guard')),
+    'the drawer explains the guard instead', guardedNotes.join(' | ').slice(0, 120))
+  check(guardedNotes.some((text) => text.includes('蜜语-Dev is not the plugin failing to read it')),
+    'and says whose problem it is', guardedNotes.join(' | ').slice(0, 160))
+  // The same red line the command failure is held to: a debugger that cannot attach is not a
+  // failed build, so the guard's words must not surface as a red row across the build panel.
+  const guardedErr = guardedRender.container.querySelector('.xcb-err')
+  check(guardedErr === null || guardedErr.textContent.includes('anti-debugging') === false,
+    'and never as a red row across the build panel: the app is not a failed build',
+    guardedErr === null ? '(no error row)' : guardedErr.textContent.slice(0, 80))
+
   // A session the model starts opens the drawer by itself — and only on the transition, so
   // a drawer the user closed while a session is running stays closed.
   let agentSession = false

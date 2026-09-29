@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.3.2
+
+### Fixed
+
+- **A debugger that cannot attach is no longer offered a takeover that cannot work.** An app that
+  refuses debuggers — `ptrace(PT_DENY_ATTACH)`, or a check of its own — cannot be attached to, and
+  `mode=launch` cannot help either, because the guard turns away the debugger that launches it just
+  as firmly. The failure note used to say exactly that and then suggest taking the app over in the
+  same breath, with a **Take over** button beside it, which sends the user into the same refusal
+  again. Measured on 蜜语-Dev: 90 s of attaching and not one line back.
+
+  The two failures now have separate diagnoses, in `lib/attach-failure.js` where they are tested:
+  the console-session case keeps both remedies (*stop the run*, *take the app over*), and the
+  refusal case drops takeover entirely and points at the routes that need no debugger — a build
+  without the guard, or reading the tree from inside the app (LookinServer, or a debug-only hook
+  that logs `recursiveDescription`). The drawer offers no **Take over** button for a refusal, and
+  the app, not the plugin, is named as the reason.
+
 ## 0.3.1
 
 ### Fixed
