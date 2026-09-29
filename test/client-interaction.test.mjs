@@ -2507,6 +2507,243 @@ section('the header seat names the session the dock cannot')
   await act(async () => { root.unmount() })
 }
 
+// =========================================================================
+// The LLDB drawer: hidden by default, opened by hand or by the model.
+// =========================================================================
+
+section('the LLDB drawer')
+{
+  /** A view tree as the host sends it: records with depth, class, frame and text. */
+  const RECORDS = [
+    { depth: 0, className: 'UIWindow', address: '0x1', frame: { x: 0, y: 0, width: 390, height: 844 }, text: '', hidden: false, attributes: {} },
+    { depth: 1, className: 'UIStackView', address: '0x2', frame: { x: 0, y: 55, width: 366, height: 747 }, text: '', hidden: false, attributes: { axis: 'vert', distribution: 'fill' } },
+    { depth: 2, className: 'Example.StatusLight', address: '0x3', frame: { x: 0, y: 0, width: 116.667, height: 44 }, text: '● GC 键盘', hidden: false, attributes: {} },
+    // A second branch, so a filter has something to drop.
+    { depth: 1, className: 'UILabel', address: '0x4', frame: { x: 0, y: 200, width: 40, height: 20 }, text: 'other', hidden: true, attributes: {} },
+  ]
+  const TREE = {
+    ok: true,
+    reused: true,
+    target: { kind: 'device', destination: 'platform=iOS,id=u', process: 'HIDProbe', bundleId: 'com.example.HIDProbe', runId: 'xr1' },
+    views: 4,
+    depth: 2,
+    classes: [{ className: 'UIWindow', count: 1 }],
+    shown: 4,
+    truncated: false,
+    records: RECORDS,
+    session: { state: 'stopped', detail: '', pid: 13290, target: 'HIDProbe', attached: { kind: 'device', id: 'u', name: 'HIDProbe', mode: 'attach' }, lineCount: 3, firstAvailable: 1 },
+  }
+  let sessionActive = false
+  const calls = serve({
+    state: () => ({ workspace: '/tmp', activeRunId: null, runs: [] }),
+    doctor: () => ({ tools: [], missingRequired: [] }),
+    detect: (body) => ({ kind: 'workspace', root: '/tmp', location: body.path, name: 'P', schemes: [], configurations: [], sweetpadDefaults: {} }),
+    destinations: () => ({ destinations: [] }),
+    lldb: (body) => {
+      // Like the host: taking a dump leaves a session behind, so the state poll that
+      // follows it agrees with the dump's own answer instead of contradicting it.
+      if (body.op === 'view') { sessionActive = true; return TREE }
+      if (body.op === 'command') return { ok: true, note: '', output: '2', session: TREE.session }
+      return sessionActive
+        ? { active: true, session: TREE.session, next: 2, firstAvailable: 1, lines: [{ n: 1, t: 'Process 13290 stopped' }, { n: 2, t: 'Target 0: (HIDProbe) stopped.' }] }
+        : { active: false, session: null, next: 0, firstAvailable: 1, lines: [] }
+    },
+  })
+
+  const instance = mount({})
+  const overlay = instance.components.get('dsh-xcodebuild-panel')
+  const toggle = instance.components.get('dsh-xcodebuild-toggle')
+  const { container } = await render([
+    React.createElement(overlay.component, { key: 'overlay' }),
+    React.createElement(toggle.component, { key: 'toggle', sessionId: 'lldb-drawer' }),
+  ])
+  await act(async () => {
+    container.querySelector('.xcb-trigger').dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+  })
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 700)) })
+
+  // Hidden by default, with a handle that says so.
+  check(container.querySelector('.xcb-lldb') === null, 'the drawer is not on screen until it is asked for')
+  const handle = container.querySelector('.xcb-lldb-toggle')
+  check(handle !== null && handle.textContent === 'LLDB', 'a status-row LLDB button is the handle', handle === null ? '(none)' : handle.textContent)
+
+  // The keyboard chord opens it, and it is its own panel, not the log's.
+  await act(async () => {
+    document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'l', metaKey: true, bubbles: true }))
+  })
+  check(container.querySelector('.xcb-lldb') !== null, 'Command-L opens the drawer')
+  equal(container.querySelectorAll('.xcb-line').length, 0, 'and it is not a log row: it uses its own classes')
+
+  // The priority feature: one click reads the running app's view tree.
+  const viewButton = Array.from(container.querySelectorAll('.xcb-btn')).find((node) => node.textContent === 'View Hierarchy')
+  check(viewButton !== undefined, 'there is a View Hierarchy button')
+  await act(async () => {
+    propsOf(viewButton).onClick()
+    await new Promise((resolve) => setTimeout(resolve, 60))
+  })
+  check(calls.some((call) => call.method === 'lldb' && call.body.op === 'view'), 'it asks the host for the view hierarchy')
+  equal(container.querySelectorAll('.xcb-lldb-row').length, 4, 'and every view is drawn')
+  check(container.textContent.includes('4 views · 2 levels'), 'with the count of what was found', container.querySelector('.xcb-lldb-stats')?.textContent)
+  check(container.querySelector('.xcb-lldb-state').textContent.includes('stopped'),
+    'and the head says what the session is doing')
+  check(container.querySelector('.xcb-lldb-state').textContent.includes('HIDProbe'),
+    'and which process it has stopped')
+  check(container.textContent.includes('● GC 键盘'), 'a label speaks for itself in the tree')
+  check(container.textContent.includes('axis=vert'),
+    'and a stack view says how it is laid out, which is usually why a screen looks wrong')
+  const hiddenRow = Array.from(container.querySelectorAll('.xcb-lldb-row')).find((node) => node.className.includes('hidden'))
+  check(hiddenRow !== undefined, 'a hidden view is marked as hidden rather than left looking visible')
+
+  // Filtering is local: the tree is already in hand, so a keystroke is not a round trip.
+  const before = calls.length
+  const filter = container.querySelector('.xcb-lldb-filter')
+  await act(async () => { propsOf(filter).onChange({ target: { value: 'StatusLight' } }) })
+  equal(container.querySelectorAll('.xcb-lldb-row').length, 3, 'the filter keeps the match and the ancestors that place it')
+  check(container.textContent.includes('other') === false, 'and drops the branch that does not match')
+  // The drawer polls the session's state while it is open, so what must NOT happen is a
+  // second dump: the filter has the tree in hand and only narrows it.
+  check(calls.slice(before).every((call) => !(call.method === 'lldb' && call.body?.op === 'view')),
+    'with no second dump: the filter narrows what the panel already holds',
+    calls.slice(before).map((call) => `${call.method}${call.body?.op === undefined ? '' : `:${call.body.op}`}`).join(','))
+
+  // A raw command, typed by the user, in the same session the model uses.
+  const box = container.querySelector('.xcb-lldb-cmd')
+  check(box !== null, 'there is a prompt to type an lldb command into')
+  await act(async () => { propsOf(box).onChange({ target: { value: 'po 1 + 1' } }) })
+  await act(async () => {
+    propsOf(box).onKeyDown({ key: 'Enter' })
+    await new Promise((resolve) => setTimeout(resolve, 60))
+  })
+  const sent = calls.filter((call) => call.method === 'lldb' && call.body.op === 'command')
+  equal(sent.length, 1, 'Enter sends the command')
+  equal(sent[0].body.command, 'po 1 + 1', 'and sends exactly what was typed')
+  check(container.querySelector('.xcb-lldb-log') !== null, 'the transcript is what the drawer shows after a command')
+
+  // A refused dump is the drawer's business, not the build panel's.
+  const refusing = serve({
+    state: () => ({ workspace: '/tmp', activeRunId: null, runs: [] }),
+    doctor: () => ({ tools: [], missingRequired: [] }),
+    detect: (body) => ({ kind: 'workspace', root: '/tmp', location: body.path, name: 'P', schemes: [], configurations: [], sweetpadDefaults: {} }),
+    destinations: () => ({ destinations: [] }),
+    lldb: (body) => (body.op === 'command'
+      ? { ok: false, note: "error: use of undeclared identifier 'UIApplication'", session: null }
+      : { active: false, session: null, next: 0, firstAvailable: 1, lines: [] }),
+  })
+  const second = mount({})
+  const secondOverlay = second.components.get('dsh-xcodebuild-panel')
+  const secondToggle = second.components.get('dsh-xcodebuild-toggle')
+  const secondRender = await render([
+    React.createElement(secondOverlay.component, { key: 'overlay' }),
+    React.createElement(secondToggle.component, { key: 'toggle', sessionId: 'lldb-refuse' }),
+  ])
+  await act(async () => {
+    secondRender.container.querySelector('.xcb-trigger').dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+  })
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 700)) })
+  await act(async () => {
+    secondRender.container.querySelector('.xcb-lldb-toggle').dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+  })
+  const secondBox = secondRender.container.querySelector('.xcb-lldb-cmd')
+  await act(async () => { propsOf(secondBox).onChange({ target: { value: 'po nope' } }) })
+  await act(async () => {
+    propsOf(secondBox).onKeyDown({ key: 'Enter' })
+    await new Promise((resolve) => setTimeout(resolve, 60))
+  })
+  check(secondRender.container.querySelector('.xcb-lldb-error') !== null, 'a failed command is reported in the drawer')
+  check(Array.from(secondRender.container.querySelectorAll('.xcb-btn')).every((node) => node.textContent !== 'Take over'),
+    'and a failed COMMAND does not offer to take the app over: only a failed dump does')
+  const errRow = secondRender.container.querySelector('.xcb-err')
+  check(errRow === null || errRow.textContent.includes('undeclared identifier') === false,
+    'and never as a red row across the build panel: a debugger that cannot attach is not a failed build',
+    errRow === null ? '(no error row)' : errRow.textContent)
+  check(refusing.some((call) => call.method === 'lldb'), 'the failed attempt did reach the route')
+
+  // A dump that failed because the run still holds the app offers to take it over.
+  const held = serve({
+    state: () => ({ workspace: '/tmp', activeRunId: null, runs: [] }),
+    doctor: () => ({ tools: [], missingRequired: [] }),
+    detect: (body) => ({ kind: 'workspace', root: '/tmp', location: body.path, name: 'P', schemes: [], configurations: [], sweetpadDefaults: {} }),
+    destinations: () => ({ destinations: [] }),
+    lldb: (body) => (body.op === 'view' && body.mode === 'launch'
+      ? TREE
+      : { ok: false, note: 'attached but the process never stopped', session: null }),
+  })
+  const fourth = mount({})
+  const fourthOverlay = fourth.components.get('dsh-xcodebuild-panel')
+  const fourthToggle = fourth.components.get('dsh-xcodebuild-toggle')
+  const fourthRender = await render([
+    React.createElement(fourthOverlay.component, { key: 'overlay' }),
+    React.createElement(fourthToggle.component, { key: 'toggle', sessionId: 'lldb-takeover' }),
+  ])
+  await act(async () => {
+    fourthRender.container.querySelector('.xcb-trigger').dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+  })
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 700)) })
+  await act(async () => {
+    fourthRender.container.querySelector('.xcb-lldb-toggle').dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+  })
+  const fourthView = Array.from(fourthRender.container.querySelectorAll('.xcb-btn')).find((node) => node.textContent === 'View Hierarchy')
+  await act(async () => {
+    propsOf(fourthView).onClick()
+    await new Promise((resolve) => setTimeout(resolve, 80))
+  })
+  const takeOver = Array.from(fourthRender.container.querySelectorAll('.xcb-btn')).find((node) => node.textContent === 'Take over')
+  check(takeOver !== undefined, 'a failed dump offers to take the app over', fourthRender.container.querySelector('.xcb-lldb-error')?.textContent)
+  check(takeOver === undefined || /relaunch/i.test(String(propsOf(takeOver).title)),
+    'and says that taking over relaunches the app')
+  await act(async () => {
+    propsOf(takeOver).onClick()
+    await new Promise((resolve) => setTimeout(resolve, 80))
+  })
+  check(held.some((call) => call.method === 'lldb' && call.body.op === 'view' && call.body.mode === 'launch'),
+    'which asks for the tree by launching the app under the debugger')
+  equal(fourthRender.container.querySelectorAll('.xcb-lldb-row').length, 4, 'and the tree arrives')
+
+  // A session the model starts opens the drawer by itself — and only on the transition, so
+  // a drawer the user closed while a session is running stays closed.
+  let agentSession = false
+  serve({
+    state: () => ({ workspace: '/tmp', activeRunId: null, runs: [] }),
+    doctor: () => ({ tools: [], missingRequired: [] }),
+    detect: (body) => ({ kind: 'workspace', root: '/tmp', location: body.path, name: 'P', schemes: [], configurations: [], sweetpadDefaults: {} }),
+    destinations: () => ({ destinations: [] }),
+    lldb: () => (agentSession
+      ? { active: true, session: TREE.session, next: 2, firstAvailable: 1, lines: [{ n: 1, t: 'Process 13290 stopped' }, { n: 2, t: 'Target 0: (HIDProbe) stopped.' }] }
+      : { active: false, session: null, next: 0, firstAvailable: 1, lines: [] }),
+  })
+  const third = mount({})
+  const thirdOverlay = third.components.get('dsh-xcodebuild-panel')
+  const thirdToggle = third.components.get('dsh-xcodebuild-toggle')
+  const thirdRender = await render([
+    React.createElement(thirdOverlay.component, { key: 'overlay' }),
+    React.createElement(thirdToggle.component, { key: 'toggle', sessionId: 'lldb-agent' }),
+  ])
+  await act(async () => {
+    thirdRender.container.querySelector('.xcb-trigger').dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+  })
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 700)) })
+  check(thirdRender.container.querySelector('.xcb-lldb') === null, 'no drawer while no session exists')
+
+  // The closed drawer asks every 4 s whether a session has appeared, so this outlasts one
+  // interval: the model starting a debugger opens it within 4 s.
+  agentSession = true
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 4600)) })
+  check(thirdRender.container.querySelector('.xcb-lldb') !== null,
+    'a session the model started opens the drawer by itself')
+  check(thirdRender.container.querySelector('.xcb-lldb-toggle').className.includes('live'),
+    'and the handle says a debugger is holding the app',
+    thirdRender.container.querySelector('.xcb-lldb-toggle').className)
+
+  const closeDrawer = Array.from(thirdRender.container.querySelectorAll('.xcb-lldb-head .xcb-btn'))
+    .find((node) => node.textContent === '✕')
+  check(closeDrawer !== undefined, 'the drawer can be closed from its own head')
+  await act(async () => { propsOf(closeDrawer).onClick() })
+  check(thirdRender.container.querySelector('.xcb-lldb') === null, 'closing it hides the drawer, not the session')
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 4600)) })
+  check(thirdRender.container.querySelector('.xcb-lldb') === null,
+    'and it stays closed while that same session runs — only a NEW session opens it')
+}
+
 console.log(`${checks - failures}/${checks} checks passed`)
 if (failures > 0) {
   console.error(`${failures} FAILED`)
