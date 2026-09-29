@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.3.0
+
+### Added
+
+- **The view tree the debugger reads is now a `.lookin` file Lookin.app opens.** `xcode_lldb`'s
+  `view-hierarchy` writes `/tmp/dsh-xcodebuild/lookin-<when>.lookin` as it reads, returns its path,
+  and a new `lookin` action opens it; the drawer grows a `Lookin` button that appears once there is a
+  tree to open. This is for the app that only a debugger can reach — no `LookinServer` in it, or none
+  that can be added — which now gets Lookin's tree view instead of a text dump. Ten files are kept.
+
+  The format was not guessed at. The keys are LookinServer's own, read off
+  `LookinDisplayItem.m -encodeWithCoder:`, and the encodings were measured by archiving the same
+  values with the real UIKit on a simulator: `encodeCGRect:forKey:` stores the **string**
+  `{{12, 55}, {366, 747}}` (not a geometry object), numbers and booleans stay inline, and strings and
+  arrays live in the archive's object table. A synthesized 4-node file was then opened by Lookin.app
+  to confirm it unarchives without complaint, and the XML is converted to the binary archive by
+  `plutil`, which was checked to keep `CF$UID` references as UID objects.
+
+  Three deliberate narrowings, each because a text dump cannot answer: `layerObject` is left nil
+  rather than invented from the view's chain, frames are accumulated to window coordinates, and the
+  superclass chain is probed over the debugger (one expression per distinct class, cached per
+  session) and falls back to the class name and its printed base class. Screenshots are not in this
+  version.
+
+
 ## 0.2.3
 
 ### Fixed
