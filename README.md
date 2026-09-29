@@ -98,16 +98,19 @@ space Lookin's own files use. The class chain is asked of the runtime, one expre
 class, which is why the first read of a session takes a moment longer than the ones after it. Ten
 files are kept.
 
-**Screenshots, cropped per view.** Each export takes one capture of the screen — `simctl io
-screenshot` on a simulator, `idevicescreenshot` on hardware — and crops it once per view, because
-that is what Lookin shows beside the tree: the selected view's pixels and the dictionary its
-preview pane looks images up in. Crops of views thinner or shorter than 8 points are skipped, every
-crop is resampled to at most 480 pixels on its long side, and the file keeps a real tree's worth of
-images from becoming a hundred megabytes. A crop that fails (a locked device, a missing
-libimobiledevice tool) leaves the tree intact and says so instead of failing the dump.
+**The images are the views' own.** Each node carries the two images Lookin shows, and both are
+rendered *inside* the app, because a screenshot cannot produce either: `solo` is the control alone
+(its sublayers are hidden while its layer is drawn, the way `LookinServer` does it) and `group` is
+the control with its subtree. Cropping one screen capture, which is what this used to do, gives a
+region of a flat image — never the control alone, and for anything scrolled off screen not even a
+faithful view of it.
 
-One capture cannot separate a view from its subviews, so each node offers the honest crop of what
-is on screen for both its solo and its group image rather than one of the two being a fiction.
+The renders come out through the app's own sandbox: a simulator's data container is a directory on
+this machine, so the PNGs are read straight out of it, while a physical device is fetched with
+`xcrun devicectl device copy from`. Views are rendered at up to 1024 pixels on their long edge and
+views too large for a drawing context are skipped. When the render cannot happen at all — an iOS 16
+or earlier device has no `devicectl` — the export falls back to cropping one screen capture, and the
+note beside the file says so.
 
 Measured on an iPhone 13 (iOS 26.6.2) under Xcode 26.0.1, because these are the facts the
 implementation is shaped around:

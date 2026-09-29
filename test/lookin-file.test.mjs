@@ -120,20 +120,28 @@ section('what a dump cannot answer is left empty, not invented')
 
 section('screenshots are attached the way Lookin stores them')
 {
-  // Two nodes, one crop each: the window's and the label's.
+  // Two nodes, each with the two images the app rendered: the window's and the label's. They are
+  // deliberately different buffers, so a file that mixed solo and group up would show it here.
   const shots = {
-    [String(Number.parseInt('101607b40', 16))]: Buffer.from('89504e470d0a1a0a', 'hex'),
-    [String(Number.parseInt('10141a3d0', 16))]: Buffer.from('89504e470d0a1a0a0203', 'hex'),
+    [String(Number.parseInt('101607b40', 16))]: {
+      solo: Buffer.from('89504e470d0a1a0a', 'hex'),
+      group: Buffer.from('89504e470d0a1a0a0102', 'hex'),
+    },
+    [String(Number.parseInt('10141a3d0', 16))]: {
+      solo: Buffer.from('89504e470d0a1a0a0203', 'hex'),
+      group: Buffer.from('89504e470d0a1a0a020304', 'hex'),
+    },
   }
   const file = buildLookinFile(RECORDS, { images: shots })
   const root = file.hierarchyInfo['1'][0]
   const light = root.subitems[0].subitems[0]
 
-  eq(root.screenshotEncodeType, 1, 'a node with a crop says its image is NSData (1)')
-  eq(root.soloScreenshot, light.soloScreenshot === null ? 'x' : root.soloScreenshot, 'and carries the crop')
-  eq(root.soloScreenshot.$data.length, 8, 'as the PNG bytes handed in')
-  eq(light.screenshotEncodeType, 1, 'the label has one too')
-  eq(light.soloScreenshot.$data.length, 10, 'its own bytes')
+  eq(root.screenshotEncodeType, 1, 'a node with an image says it is NSData (1)')
+  eq(root.soloScreenshot.$data.length, 8, 'and carries the image the app rendered for it alone')
+  eq(root.groupScreenshot.$data.length, 10, 'and the one rendered with its subtree, which is a different image')
+  eq(light.screenshotEncodeType, 1, 'the label has them too')
+  eq(light.soloScreenshot.$data.length, 10, 'its own solo bytes')
+  eq(light.groupScreenshot.$data.length, 11, 'and its own group bytes')
 
   // A node with no crop must not claim one, or Lookin draws an empty image where it has none.
   const bare = buildLookinFile(RECORDS).hierarchyInfo['1'][0]
@@ -145,6 +153,8 @@ section('screenshots are attached the way Lookin stores them')
   eq(dict.$class, 'NSDictionary', 'the screenshot dictionary is an NSDictionary')
   eq(dict['NS.keys'].$inline.map((key) => key.$number).sort((a, b) => a - b), Object.keys(shots).map(Number).sort((a, b) => a - b), 'keyed by oid')
   eq(dict['NS.objects'].$inline.length, 2, 'with one entry per image')
+  eq(dict['NS.objects'].$inline[0].$data.length, 8, 'the solo dictionary holds the solo image')
+  eq(file.groupScreenshots['NS.objects'].$inline[0].$data.length, 10, 'and the group dictionary the group one')
   eq(file.groupScreenshots['NS.objects'].$inline.length, 2, 'and the group dictionary agrees')
   // NSDictionary's decoder will not take an NSArray OBJECT for NS.keys/NS.objects — it wants
   // plist arrays, which is exactly what a real NSKeyedArchiver writes for a dictionary.
@@ -157,7 +167,9 @@ section('screenshots are attached the way Lookin stores them')
   check(xml.includes('<key>NS.keys</key>'), 'and the dictionary keeps its NS.keys/NS.objects shape')
   // The very same buffer is referenced by both screenshot fields and by both dictionaries;
   // a real tree is tens of megabytes, so it has to be written once.
-  eq((xml.match(/<data>/g) ?? []).length, 2, 'each image is written exactly once however often it is referenced')
+  // Four distinct images, each referenced by its node field and by a dictionary, and each written
+  // once: a real tree is tens of megabytes of image data, so a shared buffer must not be duplicated.
+  eq((xml.match(/<data>/g) ?? []).length, 4, 'each image is written exactly once however often it is referenced')
 }
 
 section('frames for a cropper are absolute, even though the file keeps them relative')

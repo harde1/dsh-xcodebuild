@@ -36,26 +36,53 @@
   class chain, frame, alpha, hidden flag and label text — with no unarchiver error. `layerObject` is
   still left nil, because a text dump names the view's class and says nothing about its layer.
 
-  **Screenshots.** Each export captures the screen once — `xcrun simctl io screenshot` on a
-  simulator, `idevicescreenshot` on hardware — and crops it per view with `sips`, which is the one
-  crop tool that needs no library and no compiled helper. The crop offsets were checked the only way
+  **The views' own images.** Each node carries the two images Lookin shows, and both are rendered
+  *inside* the app, because one screen capture can produce neither: `solo` is the control alone,
+  with its sublayers hidden while its layer is drawn — exactly what
+  `CALayer+LookinServer.m -lks_soloScreenshotWithLowQuality:` does — and `group` is the control with
+  its subtree. A crop of a screenshot was the first attempt and it is the wrong shape of thing: a
+  region of a flat image is never the control alone, and for anything scrolled off screen it is not
+  even a faithful view of the control.
+
+  Measured on a real tree: the window's solo image is 8.7 KB of mostly transparency against a 66 KB
+  group image of the whole screen, and for a `UIStackView` the solo render covers 0.0% of its pixels
+  against the group's 92.0%. Across the 33-node tree, 12 of 31 nodes have solo and group that
+  differ — the containers — while self-drawing leaves (a status light, a text view) are identical,
+  which is what both should be.
+
+  Two dead ends are worth recording, because both looked like they worked:
+
+  1. Naming each file after the view's address needed `(uintptr_t)(__bridge void *)view` through the
+     C variadic `snprintf`, and a variadic call from an LLDB expression reads the wrong register:
+     all 32 renders were written to `solo-93ccf4258ac9d1ca.png`, one constant garbage address,
+     overwriting each other. Files are now named by walk index and the report carries each view's
+     `description`, which is how the host matches one to its node.
+  2. The expression must reach the debugger as ONE line behind `po` — a multi-line statement
+     expression is refused as `'({' is not a valid command` — and every call whose return type LLDB
+     says it does not know needs a cast (`UIGraphicsGetCurrentContext`, `-stringValue`,
+     `-firstObject`), because one of those failures cascades into "expected identifier" errors
+     further down.
+
+  The screen-capture path is still there, and still checked: on a simulator it is `xcrun simctl io
+  screenshot`, on hardware `idevicescreenshot`, cropped per view with `sips`. It is now only the
+  fallback, for a device with no `devicectl` or a render the app refused. The crop offsets were checked the only way
   that settles it: cropping a view's computed rectangle and comparing it against the same region
   taken out of the capture pixel by pixel — 0 of 115668 pixels differ, while a centre crop of the
   same size differs in 115610. Frames are relative and a capture is absolute, so this is also what
   proves the walk that turns one into the other.
 
-  The images landed in the same three shapes the real files use, and each was measured rather than
-  assumed: PNG bytes as plist `<data>`; the two `oid -> image` dictionaries as `NS.keys`/`NS.objects`
-  **plist arrays** with the oids as bare numbers in the object table (NSKeyedUnarchiver reads them
-  back as NSNumber, and refuses an NSArray *object* there — "value for key (NS.objects) is not an
-  array"); and the same crop offered as both a node's solo and its group image. A real capture cannot
-  separate a view from its subviews, so one of those two would otherwise be a fiction.
+  Either way the images land in the same three shapes the real files use, and each was measured
+  rather than assumed: PNG bytes as plist `<data>`; the two `oid -> image` dictionaries as
+  `NS.keys`/`NS.objects` **plist arrays** with the oids as bare numbers in the object table
+  (NSKeyedUnarchiver reads them back as NSNumber, and refuses an NSArray *object* there — "value for
+  key (NS.objects) is not an array"); and one entry per node in each dictionary, since solo and group
+  are now genuinely different images.
 
-  Bounded on purpose: crops below 8 points are skipped, every crop is resampled to at most 480 pixels
-  on its long side, at most 200 nodes are cropped, and the same buffer referenced from the item, its
-  sibling field and both dictionaries is written to the archive exactly once. 31 crops of a 33-node
-  tree make a 605 KB file instead of tens of megabytes. A capture that fails — a locked device, a
-  missing tool — leaves the tree intact and reports itself beside the file.
+  Bounded on purpose: the archive writes a buffer referenced from the item, its sibling field and
+  both dictionaries exactly once; the fallback's crops below 8 points are skipped and resampled to at
+  most 480 pixels, covering at most 200 nodes. A 33-node tree with 31 rendered views makes a 1.0 MB
+  file. A capture that fails — a locked device, a missing tool — leaves the tree intact and reports
+  itself beside the file.
 
 
 ## 0.2.3
