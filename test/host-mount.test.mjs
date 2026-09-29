@@ -208,6 +208,13 @@ const runTool = registeredTools.find((tool) => tool.name === 'xcode_run')
 check(runTool.parameters.properties.action.enum !== undefined, 'xcode_run keeps its action enum')
 equal(runTool.parameters.required, ['path'], 'xcode_run requires only path')
 
+// The tree the debugger reads is also a file Lookin.app opens, and the model only learns
+// that from the schema it is handed — so both the action and the sentence describing it are
+// asserted, not just the code path behind them.
+const lldbTool = registeredTools.find((tool) => tool.name === 'xcode_lldb')
+check(lldbTool.parameters.properties.action.enum.includes('lookin'), 'xcode_lldb offers the Lookin action')
+check(/Lookin/.test(lldbTool.description), 'and its description says a .lookin file is written with the tree')
+
 // --- routes ---------------------------------------------------------------
 
 const EXPECTED_ROUTES = ['state', 'detect', 'projects', 'destinations', 'doctor', 'start', 'poll', 'search', 'lldb', 'stop']
@@ -247,6 +254,17 @@ function fakeResponse() {
 
 const stateRoute = registeredRoutes.find((route) => route.path.endsWith('/state'))
 const startRoute = registeredRoutes.find((route) => route.path.endsWith('/start'))
+const lldbRoute = registeredRoutes.find((route) => route.path.endsWith('/lldb'))
+
+// Nothing has been dumped in this process, so the panel is told to read a tree first rather
+// than being handed a file left over from an earlier session.
+{
+  const res = fakeResponse()
+  await lldbRoute.handler(fakeRequest({ body: JSON.stringify({ sessionId: 'lookin-none', op: 'lookin', open: false }) }), res)
+  const answer = JSON.parse(res.body)
+  equal(answer.ok, false, 'op=lookin before any dump is refused')
+  check(/View Hierarchy/.test(String(answer.note)), 'and the refusal names the action that writes the file', res.body)
+}
 
 // Method guard.
 {
