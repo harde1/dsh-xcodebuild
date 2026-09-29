@@ -263,6 +263,9 @@ const lldbRoute = registeredRoutes.find((route) => route.path.endsWith('/lldb'))
   await lldbRoute.handler(fakeRequest({ body: JSON.stringify({ sessionId: 'lookin-none', op: 'lookin', open: false }) }), res)
   const answer = JSON.parse(res.body)
   equal(answer.ok, false, 'op=lookin before any dump is refused')
+  // The panel decides between "open it in Lookin" and "show it in Finder" from this, so it has to
+  // be answered even on the refusal path — and answered as a boolean, not left to be inferred.
+  equal(typeof answer.lookinAvailable, 'boolean', 'and it says whether Lookin.app is installed')
   check(/View Hierarchy/.test(String(answer.note)), 'and the refusal names the action that writes the file', res.body)
 }
 

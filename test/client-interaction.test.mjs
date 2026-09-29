@@ -2538,9 +2538,14 @@ section('the LLDB drawer')
     truncated: false,
     records: RECORDS,
     lookinPath: '/tmp/dsh-xcodebuild/lookin-2026-09-29T14-50-01.lookin',
+    // Lookin.app is installed on this host, so the slot offers to open the file in it.
+    lookinAvailable: true,
     session: { state: 'stopped', detail: '', pid: 13290, target: 'HIDProbe', attached: { kind: 'device', id: 'u', name: 'HIDProbe', mode: 'attach' }, lineCount: 3, firstAvailable: 1 },
   }
   let sessionActive = false
+  // Which host the fixture is pretending to be: one with Lookin.app, or one without. Flipped
+  // inside the flow below, because that is exactly what a re-read after installing it looks like.
+  let lookinAvailable = true
   // Two states the fixture can be moved between, so Continue and Interrupt can each be
   // seen to appear when the app is in the state that button is for.
   let sessionState = 'stopped'
@@ -2553,7 +2558,7 @@ section('the LLDB drawer')
     lldb: (body) => {
       // Like the host: taking a dump leaves a session behind, so the state poll that
       // follows it agrees with the dump's own answer instead of contradicting it.
-      if (body.op === 'view') { sessionActive = true; return TREE }
+      if (body.op === 'view') { sessionActive = true; return { ...TREE, lookinAvailable } }
       if (body.op === 'lookin') return { ok: true, path: TREE.lookinPath, note: 'opened in Lookin', session: sessionAt(sessionState) }
       if (body.op === 'command') return { ok: true, note: '', output: '2', session: sessionAt(sessionState) }
       if (body.op === 'continue') { sessionState = 'running'; return { ok: true, note: 'the app is running again, still attached', session: sessionAt('running') } }
@@ -2627,6 +2632,28 @@ section('the LLDB drawer')
   const openCall = calls.filter((call) => call.method === 'lldb' && call.body.op === 'lookin').at(-1)
   check(openCall !== undefined, 'clicking it asks the host to open the export')
   equal(openCall.body.open, true, 'and to open it, not merely report where it is')
+
+  // The host that has no Lookin.app must not offer a button claiming to be Lookin: the same slot
+  // offers the file itself, and says why in its title. Re-read with the fixture flipped, which is
+  // what a host on a machine without Lookin answers from the start.
+  {
+    lookinAvailable = false
+    await act(async () => {
+      propsOf(Array.from(container.querySelectorAll('.xcb-btn')).find((node) => node.textContent === 'View Hierarchy')).onClick()
+      await new Promise((resolve) => setTimeout(resolve, 80))
+    })
+    const bare = Array.from(container.querySelectorAll('.xcb-btn'))
+    check(bare.every((node) => node.textContent !== 'Lookin'),
+      'a host without Lookin.app offers no Lookin button')
+    const reveal = bare.find((node) => node.textContent === 'Reveal')
+    check(reveal !== undefined, 'and offers Reveal in the same slot instead')
+    check(reveal !== undefined && reveal.className.includes('xcb-lldb-lookin'),
+      'in the drawer\'s own control class', reveal === undefined ? '(none)' : reveal.className)
+    check(reveal !== undefined && reveal.getAttribute('title').includes('not installed'),
+      'with a title that says why it is not called Lookin', reveal === undefined ? '(none)' : reveal.getAttribute('title'))
+    lookinAvailable = true
+  }
+
 
   // Filtering is local: the tree is already in hand, so a keystroke is not a round trip.
   const before = calls.length
@@ -2799,6 +2826,7 @@ section('the LLDB drawer')
   await act(async () => { await new Promise((resolve) => setTimeout(resolve, 4600)) })
   check(thirdRender.container.querySelector('.xcb-lldb') === null,
     'and it stays closed while that same session runs — only a NEW session opens it')
+
 }
 
 console.log(`${checks - failures}/${checks} checks passed`)

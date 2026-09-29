@@ -73,7 +73,8 @@
     "./lookin-file": {
       "default": "./lib/lookin-file.js"
     },
-    "./view-shots": "./lib/view-shots.js"
+    "./view-shots": "./lib/view-shots.js",
+    "./lookin-app": "./lib/lookin-app.js"
   },
   "files": [
     "lib",
@@ -83,7 +84,7 @@
     "scripts"
   ],
   "scripts": {
-    "test": "node test/ring-buffer.test.mjs && node test/classify.test.mjs && node test/destinations.test.mjs && node test/device-sources.test.mjs && node test/view-hierarchy.test.mjs && node test/lldb-session.test.mjs && node test/running-app.test.mjs && node test/view-shots.test.mjs && node test/lookin-file.test.mjs && node test/find-projects.test.mjs && node test/list-schemes.test.mjs && node test/client-interaction.test.mjs && node test/device-channel.test.mjs && node test/app-death.test.mjs && node test/legacy-launch.test.mjs && node test/modern-launch.test.mjs && node test/lock-state.test.mjs && node test/log-tap.test.mjs && node test/syslog.test.mjs && node test/session-files.test.mjs && node test/prune-session-files.test.mjs && node test/legacy-applog.test.mjs && node test/beautify.test.mjs && node test/dependencies.test.mjs",
+    "test": "node test/ring-buffer.test.mjs && node test/classify.test.mjs && node test/destinations.test.mjs && node test/device-sources.test.mjs && node test/view-hierarchy.test.mjs && node test/lldb-session.test.mjs && node test/running-app.test.mjs && node test/lookin-app.test.mjs && node test/view-shots.test.mjs && node test/lookin-file.test.mjs && node test/find-projects.test.mjs && node test/list-schemes.test.mjs && node test/client-interaction.test.mjs && node test/device-channel.test.mjs && node test/app-death.test.mjs && node test/legacy-launch.test.mjs && node test/modern-launch.test.mjs && node test/lock-state.test.mjs && node test/log-tap.test.mjs && node test/syslog.test.mjs && node test/session-files.test.mjs && node test/prune-session-files.test.mjs && node test/legacy-applog.test.mjs && node test/beautify.test.mjs && node test/dependencies.test.mjs",
     "link-host": "node scripts/link-host.mjs",
     "test:mount": "node test/host-mount.test.mjs",
     "test:live": "node test/live-gemoy.mjs"

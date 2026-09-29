@@ -89,7 +89,9 @@ over from there.
 
 **A tree Lookin can open.** [Lookin](https://lookin.work) is the better window onto a hierarchy, and
 the `Lookin` button in the drawer opens the tree there — but Lookin normally needs its own server
-inside the app. This does not: every read writes what it just read as
+inside the app. Lookin being installed is checked rather than assumed: with it the drawer offers
+`Lookin`, and without it the same slot offers `Reveal` — the file in Finder — because a button
+labelled "Lookin" that quietly opened Finder would be a lie. This does not: every read writes what it just read as
 `/tmp/dsh-xcodebuild/lookin-<when>.lookin`, which Lookin.app opens directly. That is what makes an
 app reachable *only* by the debugger — no `LookinServer`, a release binary, a device you can attach
 to and nothing more — browsable in the same tree view, with each node's class chain, frame, alpha

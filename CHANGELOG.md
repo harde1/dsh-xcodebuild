@@ -4,6 +4,14 @@
 
 ### Added
 
+- **The Lookin action appears only where Lookin.app does.** `/Applications/Lookin.app` and
+  `~/Applications/Lookin.app` are checked directly, with `mdfind -name Lookin.app` as the fallback
+  for an install somewhere unusual, and the answer travels with every read and every state poll.
+  With the app the drawer offers `Lookin`; without it the same slot offers `Reveal` — the `.lookin`
+  file in Finder — because a button that says Lookin and quietly opens Finder is a lie. The file is
+  written either way: it is a useful artifact on its own, and a machine without Lookin is exactly
+  where opening it elsewhere starts.
+
 - **The view tree the debugger reads is now a `.lookin` file Lookin.app opens.** `xcode_lldb`'s
   `view-hierarchy` writes `/tmp/dsh-xcodebuild/lookin-<when>.lookin` as it reads, returns its path,
   and a new `lookin` action opens it; the drawer grows a `Lookin` button that appears once there is a
