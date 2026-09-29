@@ -2534,6 +2534,10 @@ section('the LLDB drawer')
     session: { state: 'stopped', detail: '', pid: 13290, target: 'HIDProbe', attached: { kind: 'device', id: 'u', name: 'HIDProbe', mode: 'attach' }, lineCount: 3, firstAvailable: 1 },
   }
   let sessionActive = false
+  // Two states the fixture can be moved between, so Continue and Interrupt can each be
+  // seen to appear when the app is in the state that button is for.
+  let sessionState = 'stopped'
+  const sessionAt = (state) => ({ ...TREE.session, state })
   const calls = serve({
     state: () => ({ workspace: '/tmp', activeRunId: null, runs: [] }),
     doctor: () => ({ tools: [], missingRequired: [] }),
@@ -2543,9 +2547,11 @@ section('the LLDB drawer')
       // Like the host: taking a dump leaves a session behind, so the state poll that
       // follows it agrees with the dump's own answer instead of contradicting it.
       if (body.op === 'view') { sessionActive = true; return TREE }
-      if (body.op === 'command') return { ok: true, note: '', output: '2', session: TREE.session }
+      if (body.op === 'command') return { ok: true, note: '', output: '2', session: sessionAt(sessionState) }
+      if (body.op === 'continue') { sessionState = 'running'; return { ok: true, note: 'the app is running again, still attached', session: sessionAt('running') } }
+      if (body.op === 'interrupt') { sessionState = 'stopped'; return { ok: true, note: '', session: sessionAt('stopped') } }
       return sessionActive
-        ? { active: true, session: TREE.session, next: 2, firstAvailable: 1, lines: [{ n: 1, t: 'Process 13290 stopped' }, { n: 2, t: 'Target 0: (HIDProbe) stopped.' }] }
+        ? { active: true, session: sessionAt(sessionState), next: 2, firstAvailable: 1, lines: [{ n: 1, t: 'Process 13290 stopped' }, { n: 2, t: 'Target 0: (HIDProbe) stopped.' }] }
         : { active: false, session: null, next: 0, firstAvailable: 1, lines: [] }
     },
   })
@@ -2600,6 +2606,29 @@ section('the LLDB drawer')
   await act(async () => { propsOf(filter).onChange({ target: { value: 'StatusLight' } }) })
   equal(container.querySelectorAll('.xcb-lldb-row').length, 3, 'the filter keeps the match and the ancestors that place it')
   check(container.textContent.includes('other') === false, 'and drops the branch that does not match')
+  // A dump leaves the app stopped, so Continue has to be there to let it go again —
+  // otherwise the only way out of a stopped app would be to detach.
+  const continueButton = Array.from(container.querySelectorAll('.xcb-btn')).find((node) => node.textContent === 'Continue')
+  check(continueButton !== undefined, 'a stopped app offers Continue')
+  check(Array.from(container.querySelectorAll('.xcb-btn')).every((node) => node.textContent !== 'Interrupt'),
+    'and not Interrupt, which is for the running case')
+  await act(async () => {
+    propsOf(continueButton).onClick()
+    await new Promise((resolve) => setTimeout(resolve, 60))
+  })
+  check(calls.some((call) => call.method === 'lldb' && call.body.op === 'continue'),
+    'which resumes the app through the session it is already attached to')
+  check(container.textContent.includes('running'), 'and the head says the app is running again',
+    container.querySelector('.xcb-lldb-state')?.textContent)
+  const interruptButton = Array.from(container.querySelectorAll('.xcb-btn')).find((node) => node.textContent === 'Interrupt')
+  check(interruptButton !== undefined, 'so Interrupt appears where Continue was')
+  await act(async () => {
+    propsOf(interruptButton).onClick()
+    await new Promise((resolve) => setTimeout(resolve, 60))
+  })
+  check(calls.some((call) => call.method === 'lldb' && call.body.op === 'interrupt'),
+    'and it stops the app again')
+
   // The drawer polls the session's state while it is open, so what must NOT happen is a
   // second dump: the filter has the tree in hand and only narrows it.
   check(calls.slice(before).every((call) => !(call.method === 'lldb' && call.body?.op === 'view')),
