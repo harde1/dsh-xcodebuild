@@ -80,8 +80,9 @@ section('a view record becomes a Lookin display item')
   eq(root.subitems.length, 1, 'the child hangs off the parent')
 
   const stack = root.subitems[0]
-  // LLDB prints a frame relative to its superview; Lookin draws in window coordinates.
-  eq(stack.frame, '{{12, 55}, {366, 747}}', 'a child frame is accumulated with its ancestors')
+  // Frames are kept exactly as LLDB printed them — relative to the superview — because that is
+  // the space Lookin's own files use. Accumulating them here would double-count every level.
+  eq(stack.frame, '{{12, 55}, {366, 747}}', 'a child frame is kept as printed')
   eq(stack.alpha.$real, 0.5, 'alpha comes through when the dump printed one, marked a real')
   eq(stack.viewObject.$class, 'LookinObject', 'the view object is a LookinObject')
   eq(stack.viewObject.classChainList, ['UIStackView', 'UIView', 'UIResponder', 'NSObject'], 'with the real chain when one was probed')
@@ -89,7 +90,7 @@ section('a view record becomes a Lookin display item')
   eq(stack.viewObject.memoryAddress, '0x101420fb0', 'keeping the address as printed')
 
   const light = stack.subitems[0]
-  eq(light.frame, '{{12, 59}, {116.667, 44}}', 'frames accumulate through every level')
+  eq(light.frame, '{{0, 4}, {116.667, 44}}', 'and a grandchild keeps its own offset, not its ancestors\'')
   eq(light.hidden, true, 'hidden comes through')
   eq(light.alpha.$real, 1, 'and a missing alpha means 1, still a real')
   eq(light.customDisplayTitle, '● GC 键盘', 'text becomes the title Lookin shows')

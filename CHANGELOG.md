@@ -10,19 +10,32 @@
   tree to open. This is for the app that only a debugger can reach — no `LookinServer` in it, or none
   that can be added — which now gets Lookin's tree view instead of a text dump. Ten files are kept.
 
-  The format was not guessed at. The keys are LookinServer's own, read off
-  `LookinDisplayItem.m -encodeWithCoder:`, and the encodings were measured by archiving the same
-  values with the real UIKit on a simulator: `encodeCGRect:forKey:` stores the **string**
-  `{{12, 55}, {366, 747}}` (not a geometry object), numbers and booleans stay inline, and strings and
-  arrays live in the archive's object table. A synthesized 4-node file was then opened by Lookin.app
-  to confirm it unarchives without complaint, and the XML is converted to the binary archive by
-  `plutil`, which was checked to keep `CF$UID` references as UID objects.
+  The format was not guessed at, and three separate checks were needed before Lookin's classes would
+  decode the file — each of which a well-formed-looking file passes while showing an empty tree:
 
-  Three deliberate narrowings, each because a text dump cannot answer: `layerObject` is left nil
-  rather than invented from the view's chain, frames are accumulated to window coordinates, and the
-  superclass chain is probed over the debugger (one expression per distinct class, cached per
-  session) and falls back to the class name and its printed base class. Screenshots are not in this
-  version.
+  1. **Keys.** `LookinHierarchyInfo` and `LookinAppInfo` archive under the numeric keys `"1"`..`"8"`
+     rather than their property names; every other class uses its property names. Written the wrong
+     way round, the file decodes to the right class and `serverVersion` with a null payload.
+  2. **Value types.** `alpha`, `screenWidth`, `screenHeight` and `screenScale` are read with
+     `decodeDoubleForKey:`, so an integer-valued double must be a plist `<real>`.
+     NSKeyedUnarchiver's answer to `<integer>1</integer>` is "value for key (alpha) is not a 64-bit
+     float", and it then abandons the entire object: the node keeps its structure and loses every
+     field.
+  3. **Frame space.** Frames are the superview-relative numbers LLDB prints, not window coordinates:
+     LookinServer stores `layer.frame` and converts to the window only to sanity-check it, and a real
+     capture holds a view at `x = 66528` — a scroll view's content coordinate, impossible as a window
+     coordinate in a 390-wide window.
+
+  What was checked and found right: `frame`/`bounds` are the **string** `{{12, 55}, {366, 747}}`
+  (which is what the real UIKit writes for `encodeCGRect:forKey:` and what the client writes too),
+  numbers and booleans stay inline, `oid` is an inline integer, strings and arrays live in the
+  archive's object table, and `plutil` keeps `CF$UID` references as UID objects.
+
+  The method is the part worth keeping: load Lookin.app's own `LookinShared.framework` and decode the
+  file with the classes that will read it. Its classes now decode the whole tree — every node, its
+  class chain, frame, alpha, hidden flag and label text — with no unarchiver error. `layerObject` is
+  still left nil, because a text dump names the view's class and says nothing about its layer.
+  Screenshots are not in this version.
 
 
 ## 0.2.3

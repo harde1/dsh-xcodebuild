@@ -93,9 +93,10 @@ inside the app. This does not: every read writes what it just read as
 `/tmp/dsh-xcodebuild/lookin-<when>.lookin`, which Lookin.app opens directly. That is what makes an
 app reachable *only* by the debugger — no `LookinServer`, a release binary, a device you can attach
 to and nothing more — browsable in the same tree view, with each node's class chain, frame, alpha
-and hidden flag. Frames are accumulated to window coordinates because LLDB prints them relative to
-the superview, and the class chain is asked of the runtime one expression per distinct class, which
-is why the first read of a session takes a moment longer than the ones after it. Ten files are kept.
+and hidden flag — the frames are the same superview-relative numbers the panel prints, which is the
+space Lookin's own files use. The class chain is asked of the runtime, one expression per distinct
+class, which is why the first read of a session takes a moment longer than the ones after it. Ten
+files are kept.
 Screenshots are not in this version: a `.lookin` carries them, and Lookin shows an image-less tree
 perfectly well.
 
