@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.2.3
+
+### Fixed
+
+- **An attach that gets nothing back is now named for what it is.** A device attach that is merely
+  slow says something eventually; an app that refuses a debugger — `ptrace(PT_DENY_ATTACH)`, or a
+  check of its own — says nothing at all, ever. Measured on an iPhone 13 in the same minute: a
+  known-good app attached in 8.5 s and answered `po`, while the app in question produced not one line
+  in 46 s. The note now says so, and points at the two routes that can still work (a build without
+  the guard, or reading the hierarchy without a debugger, as Lookin does), instead of leaving the
+  user to guess whether the plugin or the app is at fault.
+- **A non-ASCII app name is found in the process list.** devicectl reports the path
+  percent-encoded — an app called 蜜语-Dev arrives as
+  `.../%E8%9C%9C%E8%AF%AD-Dev.app/%E8%9C%9C%E8%AF%AD-Dev` — so matching the name as the panel prints
+  it against the URL as it arrives found nothing, and a running app was reported as not running.
+  Names and paths are decoded before they are matched or quoted back.
+- **The device attach cap is 90 s** instead of 120 s. The slowest successful attach measured here was
+  40.7 s, so 90 s still covers a cold device while a refusal is reported in a minute and a half.
+
 ## 0.2.2
 
 ### Fixed

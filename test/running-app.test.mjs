@@ -90,6 +90,25 @@ section('finding the app among them')
   eq(findAppProcess(processes, '')?.pid, undefined, 'an empty name matches nothing')
   eq(findAppProcess(null, 'HIDProbe'), null, 'as does no list at all')
 
+  // devicectl percent-encodes the path, and an app can be called anything. This is the
+  // measured shape of a running 蜜语-Dev: matching the name as it is printed in the panel
+  // against the URL as it arrives found nothing, so a running app was reported as not
+  // running.
+  const nonAscii = parseProcessList(JSON.stringify({
+    result: {
+      runningProcesses: [{
+        executable: 'file:///private/var/containers/Bundle/Application/A1215665-9E24-477F-AAFF-C8CFC050D8BC/%E8%9C%9C%E8%AF%AD-Dev.app/%E8%9C%9C%E8%AF%AD-Dev',
+        processIdentifier: 14224,
+      }],
+    },
+  }))
+  eq(findAppProcess(nonAscii, '蜜语-Dev')?.pid, 14224, 'an app whose name is not ASCII is found through the URL encoding')
+  eq(nonAscii[0].name, '蜜语-Dev', 'and its name is decoded, so a message can name it')
+  check(nonAscii[0].executable.includes('蜜语-Dev.app'), 'as is the path it is matched on')
+  eq(findAppProcess(parseProcessList(JSON.stringify({
+    result: { runningProcesses: [{ executable: 'file:///tmp/100%.app/100%', processIdentifier: 9 }] },
+  })), '100%')?.pid, 9, 'while a stray percent sign is tolerated rather than thrown on')
+
   // The bundle's name and the executable's name can differ; the bundle is what the
   // caller has, because that is the path Xcode built.
   const renamed = parseProcessList(JSON.stringify({

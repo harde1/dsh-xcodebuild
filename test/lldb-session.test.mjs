@@ -273,6 +273,26 @@ section('a launch recipe does not wait for a stop that is not coming')
   check(result.waitedMs === 0, 'so nothing is waited for')
 }
 
+section('an attach that times out says whether LLDB said anything')
+{
+  // A device the attach is merely slow on eventually says something; an app that refuses
+  // the debugger never does. The host turns the second into a note naming that possibility.
+  const { session } = sessionWith(() => {})
+  session.start()
+  const quiet = await session.attach({ kind: 'device', id: 'u', pid: 42, mode: 'attach' }, { timeoutMs: 300, probeAfterMs: 100000 })
+  eq(quiet.ok, false, 'a silent attach times out')
+  eq(quiet.quiet, true, 'and is marked as having said nothing')
+  check(quiet.note.includes('said nothing at all'), 'which its note says', quiet.note)
+
+  const { session: noisy } = sessionWith((line, c) => {
+    if (line.startsWith('device process attach')) c.say('error: unable to attach')
+  })
+  noisy.start()
+  const failed = await noisy.attach({ kind: 'device', id: 'u', pid: 42, mode: 'attach' }, { timeoutMs: 1000 })
+  eq(failed.ok, false, 'an attach that is refused outright fails')
+  check(failed.note.includes('unable to attach'), 'with LLDB\'s own reason, not a timeout', failed.note)
+}
+
 section('an attach that fails reports LLDB\'s own reason')
 {
   const { session } = sessionWith((line, child) => {
