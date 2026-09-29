@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.3.5
+
+### Fixed
+
+- **A read that failed no longer leaves the app frozen.** A dump stops the app so its layers can be
+  read — that part is unavoidable, and Xcode's own view debugger does the same — so a read that
+  hangs or produces nothing used to leave a phone whose app could not be touched at all, until an
+  `lldb` process was killed by hand on the Mac. The failure path now releases it: interrupt first
+  (the expression can be hung, because a real app's tree is slow and a device connection can stall),
+  then a clean detach if the debugger still answers, and `dispose` otherwise, which ends the child
+  and takes the stop with it. The note says the app is running again.
+
+  A read that SUCCEEDS still leaves the app stopped on purpose, because that is the state the
+  drawer's `Interrupt`, `Continue` and command box exist for — `Continue` is what lets it go.
+
 ## 0.3.4
 
 ### Fixed
