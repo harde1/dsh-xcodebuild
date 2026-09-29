@@ -1,5 +1,43 @@
 # Changelog
 
+## 0.2.0
+
+### Added
+
+- **A debugger drawer, and the app's view hierarchy as text.** `⌘L` — or the `LLDB` button in the
+  panel's status row — opens a strip along the bottom of the panel that is hidden the rest of the
+  time. Its `View Hierarchy` button attaches LLDB to the app this workspace last ran, stops it, and
+  draws the key window's view tree: class, address, frame, text, hidden flag, and a stack view's
+  `axis`/`distribution`/`alignment`, filterable by class or text. A box at the bottom takes any raw
+  LLDB command, and the transcript is the same session the model uses.
+- **`xcode_lldb`**, a seventh tool: `view-hierarchy`, `command`, `attach`, `interrupt`, `detach`,
+  `status`. The session persists between calls — a device attach measured 6-25 s while every question
+  after it is immediate — and one session is kept per plugin instance, because two debuggers on one
+  app fight over it. A session the model starts opens the drawer, transcript and all.
+- **The prompt section and the `xcode-build-loop` skill route to it**, so "why does this screen look
+  wrong" reaches the view tree without the user naming a tool.
+
+### Fixed
+
+- **A thread's `stop reason = …` line no longer counts as the process being stopped.** LLDB prints
+  one while it still reports `Process N is running`, so trusting it made the session claim it could
+  run expressions when every one of them was refused with "the process must be stopped because the
+  expression might require allocating memory". Only `Process N stopped` and a settled
+  `Target 0: (name) stopped.` mean stopped now. (Measured attaching a second debugger to an app a
+  Build & Run session was holding.)
+- **An LLDB expression error is noticed wherever it is indented.** LLDB aligns the `error:` line
+  under the caret it draws, so matching only column 0 made a compile failure look like an expression
+  that evaluated to nothing — which is how an empty view hierarchy was reported for a command that
+  never ran.
+- **A sentinel from another command no longer appears in a command's output.** The `process status`
+  probes sent while an attach settles print their senders later, in the middle of whatever command
+  comes next; the first `po` after an attach came back with a foreign `<<<xcb-lldb:4>>>` line ahead
+  of its real answer.
+- **`mode=launch` starts the app running rather than suspended.** A process stopped before its first
+  line has no windows and no Objective-C runtime: with `devicectl --start-stopped` the dump came back
+  `error: use of undeclared identifier 'UIApplication'`. The app is now started for real, given time
+  to build its UI, and stopped by the attach itself.
+
 ## 0.1.3
 
 ### Fixed

@@ -9,7 +9,7 @@ Inspired by the SweetPad VS Code extension. The package and composition row keep
 
 ## What it adds
 
-**Five model-facing tools**
+**Seven model-facing tools**
 
 | Tool | Purpose |
 | --- | --- |
@@ -18,6 +18,7 @@ Inspired by the SweetPad VS Code extension. The package and composition row keep
 | `xcode_destinations` | Every channel that can name a device, merged: `-showdestinations` (simulators, My Mac, the hardware Xcode manages) + `xcdevice` (Xcode's own device layer) + `devicectl` (CoreDevice) + the classic USB channel. Each entry carries a ready-to-use destination string, whether it is reachable, and which sources saw it; `recommended` is never an unreachable device. |
 | `xcode_run` | `build` / `test` / `clean` / `archive` / `run`. Streams the full log into a background run and returns the collected compiler errors. `run` installs with `simctl` on a simulator, `devicectl` on a device CoreDevice knows, `ideviceinstaller` + `ios-deploy` on iOS 16 and earlier, and does neither for macOS. |
 | `xcode_log` | The run's log: buffered tail, incremental slice by line number, or a regex-filtered view. Safe to call mid-build. |
+| `xcode_lldb` | Debug the app this workspace last ran. `view-hierarchy` attaches LLDB to it, stops it, and returns the key window's view tree (class, frame, text, hidden, stack-view attributes); `command` runs any raw LLDB command (`po`, `bt`, `breakpoint set`, `expression`) in the same session; `attach` / `interrupt` / `detach` / `status` manage that session. |
 | `xcode_device_log` | The log of a simulator (`simctl spawn`, snapshot or a bounded live window) or of **physical hardware**. On iOS 16 and earlier, pass `bundleId` and the app's **own** per-launch log (`Documents/PPCrashLog/log_<timestamp>.log`) is read out of its sandbox — the file that survives a crash, readable while the device is locked; `mode: "syslog"` gives the live `idevicesyslog` window instead. |
 
 **Model guidance, so the tools are used without being named**
@@ -76,6 +77,32 @@ opposite of having a fallback. All three seats are covered by `test/client-inter
 Whichever seat it lands in, the panel gives you: a project picker (below), scheme / destination / configuration selectors with a
 `⟳` beside the destination list that re-reads it on demand, Build / Run / Test / Clean / Archive / Stop,
 a colour-coded streaming log, and a filter bar.
+
+**A debugger, in a drawer along the bottom.** `⌘L`, or the `LLDB` button in the status row, opens a
+strip that is hidden the rest of the time. `View Hierarchy` answers the question a screenshot cannot:
+it attaches LLDB to the app this project last ran, stops it, and draws the key window's view tree —
+class, address, frame, text, hidden flag, and a stack view's `axis`/`distribution`/`alignment`, which
+is usually why a screen looks wrong. A filter narrows it by class or text without asking the host
+again, and a box at the bottom takes any LLDB command. The drawer is the *same* session the model
+uses, so a session the model starts opens it — transcript and all — and the user can take the prompt
+over from there.
+
+Measured on an iPhone 13 (iOS 26.6.2) under Xcode 26.0.1, because these are the facts the
+implementation is shaped around:
+
+- **A device attach is asynchronous and slow.** `device process attach -p <pid>` returns at once, and
+  the process stops 6-25 s later with the stop arriving as a message. The plugin waits for
+  `Process N stopped` and nudges with `process status`; it does **not** treat a thread's
+  `stop reason = …` line as the process being stopped — LLDB prints one while it still reports the
+  process as running, and trusting it made every expression fail.
+- **A process must have run before it can be inspected.** Launching under the debugger
+  (`mode=launch`) starts the app for real and attaches after it has had time to build its UI.
+  With `devicectl --start-stopped` instead, the dump returned
+  `error: use of undeclared identifier 'UIApplication'` — no windows, no Objective-C runtime.
+- **The dump is one expression**: `po [[[[UIApplication sharedApplication] windows] firstObject]
+  recursiveDescription]`. `windows` is deprecated but still answers on iOS 26, and its first element
+  is the key window. Each view line's depth is the number of `|` before its `<`, so the tree is
+  rebuilt from indentation rather than trusted from a pretty-printer.
 
 ## Choosing a project
 
