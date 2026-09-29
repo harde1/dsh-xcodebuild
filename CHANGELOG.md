@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.1
+
+### Added
+
+- **`Continue`**, in the drawer and as `xcode_lldb action=continue`. Reading a view tree stops the
+  app and leaves it stopped, so without this the only way to let it go again was to detach — which
+  also ends the session. It appears exactly when the app is being held stopped, which is the state
+  a dump leaves behind, and `Interrupt` appears in its place while it runs.
+
 ## 0.2.0
 
 ### Added
