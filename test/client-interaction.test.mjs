@@ -2537,6 +2537,7 @@ section('the LLDB drawer')
     shown: 4,
     truncated: false,
     records: RECORDS,
+    lookinPath: '/tmp/dsh-xcodebuild/lookin-2026-09-29T14-50-01.lookin',
     session: { state: 'stopped', detail: '', pid: 13290, target: 'HIDProbe', attached: { kind: 'device', id: 'u', name: 'HIDProbe', mode: 'attach' }, lineCount: 3, firstAvailable: 1 },
   }
   let sessionActive = false
@@ -2553,6 +2554,7 @@ section('the LLDB drawer')
       // Like the host: taking a dump leaves a session behind, so the state poll that
       // follows it agrees with the dump's own answer instead of contradicting it.
       if (body.op === 'view') { sessionActive = true; return TREE }
+      if (body.op === 'lookin') return { ok: true, path: TREE.lookinPath, note: 'opened in Lookin', session: sessionAt(sessionState) }
       if (body.op === 'command') return { ok: true, note: '', output: '2', session: sessionAt(sessionState) }
       if (body.op === 'continue') { sessionState = 'running'; return { ok: true, note: 'the app is running again, still attached', session: sessionAt('running') } }
       if (body.op === 'interrupt') { sessionState = 'stopped'; return { ok: true, note: '', session: sessionAt('stopped') } }
@@ -2585,6 +2587,10 @@ section('the LLDB drawer')
   })
   check(container.querySelector('.xcb-lldb') !== null, 'Command-L opens the drawer')
   equal(container.querySelectorAll('.xcb-line').length, 0, 'and it is not a log row: it uses its own classes')
+  check(
+    Array.from(container.querySelectorAll('.xcb-btn')).every((node) => node.textContent !== 'Lookin'),
+    'no Lookin button before a tree has been read: there would be nothing to open',
+  )
 
   // The priority feature: one click reads the running app's view tree.
   const viewButton = Array.from(container.querySelectorAll('.xcb-btn')).find((node) => node.textContent === 'View Hierarchy')
@@ -2605,6 +2611,22 @@ section('the LLDB drawer')
     'and a stack view says how it is laid out, which is usually why a screen looks wrong')
   const hiddenRow = Array.from(container.querySelectorAll('.xcb-lldb-row')).find((node) => node.className.includes('hidden'))
   check(hiddenRow !== undefined, 'a hidden view is marked as hidden rather than left looking visible')
+
+  // The export is written as the tree is read, so the button opens a file that exists — and
+  // the head knows which file, because the dump's own answer carried the path.
+  const lookinButton = Array.from(container.querySelectorAll('.xcb-btn')).find((node) => node.textContent === 'Lookin')
+  check(lookinButton !== undefined, 'a read tree offers a Lookin button')
+  check(lookinButton.className.includes('xcb-lldb-lookin'),
+    'and it is the drawer\'s own control, not a log or run button', lookinButton.className)
+  check(lookinButton.getAttribute('title').includes('lookin-2026-09-29T14-50-01.lookin'),
+    'whose title names the file the read wrote', lookinButton.getAttribute('title'))
+  await act(async () => {
+    propsOf(lookinButton).onClick()
+    await new Promise((resolve) => setTimeout(resolve, 60))
+  })
+  const openCall = calls.filter((call) => call.method === 'lldb' && call.body.op === 'lookin').at(-1)
+  check(openCall !== undefined, 'clicking it asks the host to open the export')
+  equal(openCall.body.open, true, 'and to open it, not merely report where it is')
 
   // Filtering is local: the tree is already in hand, so a keystroke is not a round trip.
   const before = calls.length
