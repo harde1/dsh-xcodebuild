@@ -10,6 +10,27 @@
   composed but never attached to the failure, so a device that had just been freed looked like an
   unexplained one.
 
+## 0.3.7
+
+### Fixed
+
+- **A debugger this plugin left behind is cleared before a new attach.** A failed attach does not
+  always take its processes with it, and the one that is easy to miss is the CoreDevice helper lldb
+  causes to launch (`.../CoreDevice.framework/.../bin/device`), which is what owns the channel to the
+  phone. Both keep the device busy, so the next attempt dies at the first step —
+  `device select <udid>: no answer within 30000 ms` — a message that names no cause, while the cause
+  is a process this plugin started minutes earlier. Measured on 蜜语-Dev: an `lldb` 2m57s old and its
+  helper 3m17s old, still holding the device, after which nothing could attach.
+
+  Only processes inside this plugin's own process tree are candidates, because Xcode and `devicectl`
+  run the same two programs and their sessions are not ours to end (and `pid 1`, the ancestor of
+  everything, is refused outright). The note now also says what was ended.
+
+- **The "the run still holds it" half of that message is only said when it is true.** `ios-deploy`
+  is checked for, rather than trusted from the run record: a record can outlive the console session
+  it describes, and blaming a session that is not there sends the user to stop a run that already
+  ended. A device that does not answer the first command is now described as busy or locked.
+
 ## 0.3.6
 
 ### Changed
