@@ -294,6 +294,12 @@ section('with better-sidebar')
   check(dockedPanel !== null, 'the docked panel renders')
   check(dockedPanel?.className.includes('docked') === true, 'the docked panel uses the filling layout, not the floating one')
   check(container.querySelector('.xcb-head') === null, 'the docked panel draws no head row: the tab strip already closes it')
+  // The debugger's handle is in the STATUS row, not the head: the tab strip closes the
+  // panel, so a handle that only existed in the head would leave a docked panel — the
+  // usual seat — with no way to open the drawer at all.
+  const dockedLldb = container.querySelector('.xcb-lldb-toggle')
+  check(dockedLldb !== null, 'the docked panel still carries the LLDB handle')
+  check(dockedLldb?.textContent === 'LLDB', 'and it reads LLDB')
   // The dock owns the panel, so the fixed header entry is gone: better-sidebar
   // offers the tab through its own add affordance, and a second permanent button
   // beside the session title would only be clutter.
