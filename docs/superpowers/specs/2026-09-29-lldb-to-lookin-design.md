@@ -125,3 +125,23 @@ LLDB 会话 ──po recursiveDescription──> lib/view-hierarchy.js (已有)
 
 逐视图截图：整屏截图按每个 frame 裁剪注入 `soloScreenshots`/`groupScreenshots`，是 Lookin 直观感的主要来源；
 模拟器走 `simctl io screenshot`，真机走 `idevicescreenshot` 或让 LLDB 在进程内 `UIGraphicsImageRenderer` 渲染。
+
+---
+
+## 实测修正（实现期间，用 Lookin 自己的解码器验证得到）
+
+设计阶段的三处判断被实测推翻。验证方法：加载 `/Applications/Lookin.app/Contents/Frameworks/LookinShared.framework`，
+用**将来真正读这个文件的类**去 `NSKeyedUnarchiver` 解我们的文件 —— 只检查「格式合法」会放过全部三处，
+因为它们的表现都是「Lookin 能打开、树是空的」。
+
+| 设计阶段的判断 | 实测结果 | 证据 |
+| --- | --- | --- |
+| `LookinHierarchyInfo` / `LookinAppInfo` 用属性名做键 | 这两个类用数字键 `"1"`..`"8"`；其余类才用属性名 | 属性名写法解出正确的类与 `serverVersion`，但 payload 为 null |
+| `alpha` 等数值直接写成整数即可 | `alpha` / `screenWidth` / `screenHeight` / `screenScale` 必须写 `<real>` | NSKeyedUnarchiver: `value for key (alpha) is not a 64-bit float`，随后整个节点被放弃（结构还在、字段全空） |
+| frame 累加成窗口坐标更「直观」 | 必须保持 LLDB 打印的**父视图相对**坐标 | `LKS_HierarchyDisplayItemsMaker` 存的是 `layer.frame`，转窗口坐标只用于校验；真实抓取里存在 `x = 66528`（滚动内容坐标，390 宽窗口不可能） |
+| `frame`/`bounds` 可能是几何对象 | 是字符串 `{{x, y}, {w, h}}` | 真机 UIKit 归档 `encodeCGRect:forKey:` 的实测输出 |
+| `oid` 用内存地址 | 保持地址（内联整数）即可 | 客户端自己归档时 `oid` 也是内联整数；地址唯一，满足 Lookin 的节点标识需求 |
+
+另外两处表达式问题也由实测发现（单元测试无法发现）：
+`NSClassFromString`/`[c superclass]` 在 LLDB 表达式里必须显式转换；`stringWithFormat:` 是变参方法，
+LLDB 会报 `too many arguments to method call`，因此屏幕尺寸改为三个 `(double)` 标量问法。
