@@ -4,6 +4,28 @@
 
 ### Added
 
+- **Lookin's own window, mirrored in a tab beside the panel — and clickable.** The sidebar grows a
+  second tab (`lib/client.js`, `lib/index.js`'s `lookinState` / `lookinFrame` / `lookinInput` /
+  `lookinOpen` / `lookinPrivacy` routes) that shows `/Applications/Lookin.app`'s window itself:
+  `screencapture -x -o -l<window id>` renders the window's *own* content, so the mirror is correct
+  when Lookin is behind another app and needs no `LookinServer` in the app being inspected. Frames
+  are polled at ~3 fps, bounded to 1280 px on the long edge before they are sent (measured: 1451×1172
+  points captured 2902×2344 at 775 KB as JPEG, `sips -Z 1280` at 95–100 ms brings one frame to
+  232 KB), and the pointer is forwarded into Lookin's process — click, drag and scroll — which is what
+  makes it Lookin you can use rather than a picture of Lookin.
+- **`native/wininfo.swift`**, compiled on first use into `~/Library/Caches/dsh-xcodebuild/` with
+  `xcrun swiftc`: window enumeration with ids and bounds (`CGWindowListCopyWindowInfo`), the
+  permission and frontmost-app status line, and event posting (`CGEvent.postToPid`). Shipped as
+  source so there is no unsigned binary in the package. Measured: enumeration 30 ms, a capture
+  ~130–190 ms, and the window list still finds a window that is completely occluded.
+- **The mirror says what it cannot do.** Posting an event into another process needs Accessibility
+  for the *responsible* process, and on the development machine that grant was denied for the
+  Harness helper (`kTCCServiceAccessibility|io.dsh.desktop.helper = 0`) while Screen Recording was
+  granted — empirically, both `postToPid` and system-level posts were dropped. So the tab reads the
+  grant, names the pane to open, offers a `System Settings` button, and **refuses the click** with a
+  reason instead of looking like it worked. `lib/lookin-window.js` holds the parsing and the window
+  choice (largest layer-0 window of the process, with size floors) as pure functions, covered by
+  `test/lookin-window.test.mjs`.
 - **A detail pane in the drawer: Lookin's view of one node, without Lookin.** Clicking a view in the
   tree asks the host about that one view and opens a pane beside it — the control's own `Solo` image
   and its `Group` image, its frame and bounds, its background colour as a swatch, its layer class and

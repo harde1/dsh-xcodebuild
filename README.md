@@ -78,6 +78,23 @@ Whichever seat it lands in, the panel gives you: a project picker (below), schem
 `⟳` beside the destination list that re-reads it on demand, Build / Run / Test / Clean / Archive / Stop,
 a colour-coded streaming log, and a filter bar.
 
+**A second tab: Lookin's own window, mirrored and clickable.** Beside the panel, the same sidebar
+carries a tab that shows **Lookin.app's window itself** — captured from the window, not from the
+screen, so it is correct even when Lookin is behind another app and needs no `LookinServer` in the
+app being inspected. It polls the host for the window's state, mirrors at about three frames a
+second, and forwards the pointer: clicking, dragging and scrolling in the image are posted into
+Lookin's process, so Lookin is usable without switching to it. A `Pause` / `Resume` and a `1:1` /
+`Fit` control sit above the image, and the `Lookin` button opens or focuses the real app.
+
+It reports what it cannot do instead of pretending. Posting an event into another process needs
+**Accessibility** for the process that posts it — measured here as denied for the Harness *helper*
+while Screen Recording was granted — so the tab reads the grant, says which pane to open, and
+refuses the click rather than swallowing it. There is a `System Settings` button beside that note.
+
+The capture is compiled, not shipped: `native/wininfo.swift` becomes a binary in
+`~/Library/Caches/dsh-xcodebuild/` on first use, so there is no unsigned blob in the package and
+nothing to trust but the source in front of you.
+
 **A debugger, in a drawer along the bottom.** `⌘L`, or the `LLDB` button in the status row, opens a
 strip that is hidden the rest of the time. `View Hierarchy` answers the question a screenshot cannot:
 it attaches LLDB to the app this project last ran, stops it, and draws the key window's view tree —
