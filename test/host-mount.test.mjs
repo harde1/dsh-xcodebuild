@@ -172,7 +172,7 @@ check(
 
 // --- tools ----------------------------------------------------------------
 
-const EXPECTED_TOOLS = ['xcode_project', 'xcode_doctor', 'xcode_destinations', 'xcode_run', 'xcode_log', 'xcode_device_log']
+const EXPECTED_TOOLS = ['xcode_project', 'xcode_doctor', 'xcode_destinations', 'xcode_run', 'xcode_log', 'xcode_device_log', 'xcode_lldb']
 equal(registeredTools.map((tool) => tool.name), EXPECTED_TOOLS, 'every tool is registered')
 
 // `xcode_doctor` asks the machine, not the caller: it has nothing to be told, so
@@ -210,7 +210,7 @@ equal(runTool.parameters.required, ['path'], 'xcode_run requires only path')
 
 // --- routes ---------------------------------------------------------------
 
-const EXPECTED_ROUTES = ['state', 'detect', 'projects', 'destinations', 'doctor', 'start', 'poll', 'search', 'stop']
+const EXPECTED_ROUTES = ['state', 'detect', 'projects', 'destinations', 'doctor', 'start', 'poll', 'search', 'lldb', 'stop']
 equal(
   registeredRoutes.map((route) => route.path.replace('/_dsh/dsh-xcodebuild/', '')),
   EXPECTED_ROUTES,
