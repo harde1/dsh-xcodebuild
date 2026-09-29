@@ -50,6 +50,15 @@ check(held.note.includes('stop that run, or pass mode=launch to take the app ove
   'with both remedies offered', held.note)
 check(!held.note.includes('anti-debugging'), 'and no guard is invented for it')
 
+section('a stuck debugger that was ended says so, so the retry is not wishful')
+const released = attachFailure({ ...quietDevice, released: true })
+check(released.note.includes('has been ended'), 'the note says the device was released')
+check(released.note.includes('attach again'), 'and that a retry is worth making')
+eq(attachFailure(quietDevice).note.includes('has been ended'), false,
+  'a failure that released nothing does not claim it did')
+eq(attachFailure({ ...quietDevice, quiet: false, released: true }).note.includes('has been ended'), true,
+  'and a slow attach that left nothing behind still reports the release')
+
 section('what is not a refusal')
 eq(attachFailure({ ...quietDevice, kind: 'simulator' }).refused, false,
   'a simulator says nothing for its own reasons, and a guard is not one of them')

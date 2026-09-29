@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.3.3
+
+### Fixed
+
+- **A dead lldb session was reused, which locked the whole LLDB route.** After a failed attach the
+  session object stays behind in state `dead`, and `lldbEnsureAttached` accepted it: `attach`
+  answered `ok: true, reused: true` while its own summary said `lldb exited (status dead)`, and every
+  operation after that answered *"the lldb session is dead"* until the plugin was restarted. A dead
+  or exited session is now disposed and replaced instead of reused.
+- **A debugger that attached and then went silent was left holding the device.** That is what makes
+  the next attempt hang in exactly the same way. Measured on 蜜语-Dev: two stuck `lldb` processes
+  (one of them an orphan over an hour old, whose parent had died), after which every attach stayed
+  silent for 90 s — while the build itself was perfectly debuggable (`get-task-allow = true`, a
+  Debug build). A silent failure now ends its own child before reporting, and the note says the
+  device has been released and a retry will work, instead of leaving the user to guess.
+
+  This also corrects a wrong diagnosis: the anti-debugging-guard explanation was reached for an app
+  that has no such guard. The guard case is still recognised (see 0.3.2) — it is just not the first
+  thing to assume when a build is debuggable and a previous debugger never let go.
+
 ## 0.3.2
 
 ### Fixed
