@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.3.17
+
+### Added
+
+- **Choosing an app in the `Apps` panel also hooks its log.** The question that follows "which app is
+  it?" is "what is it saying?", so the selection now opens the `Log` tab on that app's own log instead
+  of leaving it to be asked for separately. The filter is the process name the running-app list already
+  gives, so no bundle id has to be resolved first; each read is a bounded window off the device
+  (`idevicesyslog -u <udid> -p <name>`), and the panel asks again every few seconds while the log is on
+  screen — "live" is the panel reading again, not a reader left running on the phone, which would
+  outlive the panel and hold the device open.
+
 ## 0.3.16
 
 ### Changed
