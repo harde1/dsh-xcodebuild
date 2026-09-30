@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.3.19
+
+### Fixed
+
+- **The app log came back empty while the device had answered.** `tailLog` returns its lines JOINED
+  into one capped string, because the tool that reads it prints it; the new app-log route handed that
+  string to the panel, which reads lines, so it saw none — a window that had really captured 31 lines
+  of 蜜语-Dev showed `nothing said in this window`. The route now splits it back into lines (the cap
+  still applied), and the panel accepts a joined block as well as an array, because answering "no
+  lines" to a log with content is worse than answering nothing. The window is 6 s by default, which is
+  what a quiet app needs to say something.
+
 ## 0.3.18
 
 ### Added
