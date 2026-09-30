@@ -15,11 +15,18 @@
   app; an app that refuses debuggers and a device with a wedged debug channel look identical from
   here. It now says to attach the same app from Xcode: if Xcode attaches, the app is turning
   debuggers away; if Xcode cannot either, the device's channel is wedged. On 蜜语-Dev the static
-  evidence points at the first: `UMJailbreak test string`, `/private/umTest_Jailbreak.txt`,
-  `Error: sysctl, take 1|2`, the Cydia and MobileSubstrate paths, and a `sysctl` P_TRACED check —
-  with no `ptrace` import and no inline `svc #0x80`, so the guard is the sysctl kind. The app's
-  `get-task-allow = true` says nothing about an in-app guard, which is how that evidence was
-  misread.
+  evidence pointed at the first: `Error: sysctl, take 1|2` and the Cydia and MobileSubstrate paths
+  in `Enshi/SDK/UMessage_Sdk_1.5.0a/libUMessage_Sdk_1.5.0a.a`, whose `+[UMessageProtocolData
+  isDeviceJailBreak]` does the sysctl P_TRACED check. That reading was wrong as well, and this time
+  it was settled by the object file rather than by reasoning: `UMProtocolData.o` references no
+  `exit`, `kill`, `abort`, `raise` or `ptrace`, so the check detects and reports a debugger and
+  cannot end the process — and a detector that cannot kill the app cannot make an attach hang
+  silently. No `ptrace` import and no inline `svc #0x80` exist anywhere in the app either, so this
+  build carries no blocking guard at all, and the silent attach is not an app-side refusal. What the
+  same measurements DO show is the device's own control channel: `devicectl device process launch`
+  ran past 84 s with no answer while `devicectl device info details` answered in 2 s in the same
+  minute, and the same launch had returned in about 2 s earlier in the session. A guard is no longer
+  offered as the likely cause.
 
 ## 0.3.11
 
