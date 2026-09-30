@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.16
+
+### Changed
+
+- **The running-app list is a panel of its own, not a row of buttons.** A phone runs a few hundred
+  processes and `Apps` returns the app ones, which is still a list to read and choose from: it now
+  opens as a centred panel with one row per app — name on the left, pid on the right, the full bundle
+  path on hover — the current choice marked, `Close` in its corner and a click on the backdrop
+  dismissing it. Picking a row attaches to that app and closes the panel.
+
 ## 0.3.15
 
 ### Added
