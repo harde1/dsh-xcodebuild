@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.3.14
+
+### Fixed
+
+- **A running app can be read without building it again.** `View Hierarchy` sent only `continue`, so
+  the host fell back to the last run for its destination and app bundle; after a restart, or in any
+  workspace that had not been built in that session, there was nothing to attach to and the only way
+  forward was another build or a relaunch. Attaching needs exactly two things — the device and the app
+  bundle, whose file name is the process name — and the panel already knows both. They are now sent
+  with the request and remembered per workspace, so `Attach to Process` on the app that is already
+  running is the normal path: no build, no relaunch, no stopping the app first (it is stopped by the
+  debugger asking, as in 0.3.13).
+
 ## 0.3.13
 
 ### Fixed
