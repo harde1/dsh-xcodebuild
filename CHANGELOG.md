@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.3.21
+
+### Fixed
+
+- **A view read refused by the device now says which session is holding the app.** The device's answer
+  is `Process <pid> exited with status = -1 (0xffffffff) tried to attach to process already being
+  debugged`, and on iOS exactly one debugger can own a process, so this is not something to retry
+  around: the other session must let go. Measured while diagnosing a stuck read, `ps -o pid,ppid,command`
+  showed `/Applications/Xcode.app/Contents/Developer/usr/bin/lldb` parented by Xcode — Xcode was holding
+  蜜语-Dev. The note now names Xcode and the one action that clears it (⌘. leaves the app running, so
+  nothing has to be rebuilt or relaunched), instead of reporting an attach that never settled.
+
 ## 0.3.20
 
 ### Fixed
