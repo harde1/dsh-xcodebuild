@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.3.10
+
+### Fixed
+
+- **An attach error that arrived late was never read, so a 3-second answer became a 90-second
+  "silence".** `device process attach -p` returns at once and its outcome is printed afterwards,
+  asynchronously — after the command's own output slice has closed. The session judged "LLDB said
+  nothing" from those slices alone, so it never saw the answer. Measured by hand on 蜜语-Dev with
+  the same phone: lldb answered within 3 s — `error: attach failed: no such process` (debugserver
+  `E96`). The attach now watches everything LLDB prints from the moment it begins, fails the moment
+  an attach error arrives, quotes LLDB's words, and hands back what it printed. A probe's "not yet"
+  error does not cut a slow attach short.
+- **The anti-debugging-guard diagnosis is gone, because it was wrong.** It was reached from that
+  false silence. 蜜语-Dev imports no `ptrace`, is signed `get-task-allow = true` with a Team
+  Provisioning profile, and the phone reported Developer Mode enabled, DDI services available,
+  paired and tunnel connected. The note now reports what LLDB said; for `no such process` it says
+  the refusal comes from the phone's debugserver and offers the relaunch (`mode=launch`, the drawer's
+  `Take over`), and real silence is reported as silence, with no cause invented.
+- **The failure path threw.** It read `ready.cleared` inside the function that creates `ready`,
+  which is a ReferenceError the moment an attach failed. It uses its own `cleared` now.
+- **Every failed attach ends its own debugger**, not only a silent one, so no path leaves the app
+  stopped or the device held.
+
 ## 0.3.9
 
 ### Fixed

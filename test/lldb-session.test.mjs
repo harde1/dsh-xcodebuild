@@ -282,7 +282,7 @@ section('an attach that times out says whether LLDB said anything')
   const quiet = await session.attach({ kind: 'device', id: 'u', pid: 42, mode: 'attach' }, { timeoutMs: 300, probeAfterMs: 100000 })
   eq(quiet.ok, false, 'a silent attach times out')
   eq(quiet.quiet, true, 'and is marked as having said nothing')
-  check(quiet.note.includes('said nothing at all'), 'which its note says', quiet.note)
+  check(quiet.note.includes('printed nothing at all'), 'which its note says', quiet.note)
 
   const { session: noisy } = sessionWith((line, c) => {
     if (line.startsWith('device process attach')) c.say('error: unable to attach')
@@ -291,6 +291,50 @@ section('an attach that times out says whether LLDB said anything')
   const failed = await noisy.attach({ kind: 'device', id: 'u', pid: 42, mode: 'attach' }, { timeoutMs: 1000 })
   eq(failed.ok, false, 'an attach that is refused outright fails')
   check(failed.note.includes('unable to attach'), 'with LLDB\'s own reason, not a timeout', failed.note)
+}
+
+section('an error that arrives AFTER the attach command returned ends the wait at once')
+{
+  // Measured on 蜜语-Dev: `device process attach -p` returns with nothing, and ~3 s later lldb
+  // prints `error: attach failed: no such process` (debugserver E96). The plugin read only each
+  // command's own slice, so it waited 90 s, called that silence, and blamed an anti-debugging guard.
+  const { session } = sessionWith((line, c) => {
+    if (line.startsWith('device process attach')) {
+      setTimeout(() => c.say('error: attach failed: no such process'), 150)
+    }
+  })
+  session.start()
+  const started = Date.now()
+  const answer = await session.attach({ kind: 'device', id: 'u', pid: 15348, mode: 'attach' }, { timeoutMs: 5000, probeAfterMs: 100000 })
+  const took = Date.now() - started
+  eq(answer.ok, false, 'the attach fails')
+  check(answer.note.includes('no such process'), 'with LLDB\'s own words', answer.note)
+  eq(answer.quiet, false, 'and it is not reported as silence')
+  check(took < 2000, 'long before the timeout', `${took} ms`)
+  check(Array.isArray(answer.heard) && answer.heard.some((t) => t.includes('no such process')), 'what LLDB printed is handed back')
+}
+
+{
+  // A slow attach can have its `process status` probes answered with errors that only mean "not
+  // yet"; those must not cut the wait short.
+  const { session } = sessionWith((line, c) => {
+    if (line.startsWith('process status')) c.say('error: Process must be launched.')
+    if (line.startsWith('device process attach')) setTimeout(() => c.say('Process 7 stopped'), 400)
+  })
+  session.start()
+  const slow = await session.attach({ kind: 'device', id: 'u', pid: 7, mode: 'attach' }, { timeoutMs: 5000, probeAfterMs: 0, probeEveryMs: 50 })
+  eq(slow.ok, true, 'a probe\'s "not yet" does not fail an attach that then stops')
+}
+
+{
+  // A timeout after LLDB DID say something reports what it said instead of calling it silence.
+  const { session } = sessionWith((line, c) => {
+    if (line.startsWith('device process attach')) setTimeout(() => c.say('warning: waiting for the device to respond'), 50)
+  })
+  session.start()
+  const said = await session.attach({ kind: 'device', id: 'u', pid: 7, mode: 'attach' }, { timeoutMs: 400, probeAfterMs: 100000 })
+  eq(said.quiet, false, 'something was printed, so it is not silence')
+  check(said.note.includes('waiting for the device to respond'), 'and the note quotes it', said.note)
 }
 
 section('an attach that fails reports LLDB\'s own reason')
