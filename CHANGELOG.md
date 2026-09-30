@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.3.15
+
+### Added
+
+- **An `Apps` button lists the apps running on the device, and a pick is what gets attached to.** Which
+  app is it? The device knows every process it runs, so that question no longer needs a build: the list
+  gives each app process a pid, and the pid travels with the read. It is narrowed to app processes,
+  because a phone runs a few hundred system ones and the app would have to be read past to be found —
+  measured on 蜜语-Dev: 265 processes, one of them the app.
+
+### Changed
+
+- **A build IS a choice.** The app a successful run produced becomes the attach target by itself — name
+  and pid — so `View Hierarchy` reads the app you just built without being told, and a process picked
+  from the `Apps` list gives way to it. The target is remembered per workspace, so a reload or a DSH
+  restart does not send you back to the list.
+
 ## 0.3.14
 
 ### Fixed
