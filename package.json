@@ -1,6 +1,6 @@
 {
   "name": "dsh-xcodebuild",
-  "version": "0.3.21",
+  "version": "0.3.22",
   "description": "Xcode build and development loop for DeepSeek Harness: build/test/clean/archive/run with a live, filterable build log panel.",
   "author": "chuckliang <harde1@163.com>",
   "keywords": [

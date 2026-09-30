@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.3.22
+
+### Fixed
+
+- **A refused attach now names WHO is holding the app.** "Another debugger already owns it" is half an
+  answer, and the half it withholds is a fact this Mac holds: the plugin now reads `ps` and names the
+  owner of the offending debugger — `Xcode is holding an app on this Mac right now (lldb pid 42159)` —
+  and says the remedy with that name in it (`stop Xcode's debug session (⌘.), then attach again`).
+  Xcode's debugger is a path, not a name, so the parent process is what identifies it
+  (`/Applications/Xcode.app/Contents/Developer/usr/bin/lldb` → Xcode). Only this plugin's own tree is
+  excluded; nothing belonging to anyone else is ever touched, because the point is to say the name,
+  not to take the session.
+
 ## 0.3.21
 
 ### Fixed
