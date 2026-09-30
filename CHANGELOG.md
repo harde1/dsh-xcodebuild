@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.3.20
+
+### Fixed
+
+- **The selected app's log was put in the wrong panel.** It was drawn inside the debugger drawer, as a
+  second log view of its own — which split one app's output across two places and hid it from the log
+  panel's filtering, searching and following. It now goes into the log panel, which is the panel that
+  already speaks this format: its four level buttons ARE a device log's four levels, and the host
+  classifies each line with `lib/syslog.js` (`verbose`/`info`/`warning`/`error`, `plain` for anything
+  else) exactly as the launch path does. An empty window and a missing reader are also told apart now:
+  a failed read says so in the panel instead of looking like a quiet app.
+
 ## 0.3.19
 
 ### Fixed
