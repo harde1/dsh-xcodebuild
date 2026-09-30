@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.3.23
+
+### Changed
+
+- **The console hugs its bottom, and follows its own tail.** The debugger drawer keeps no bottom
+  margin, its log area takes the height that is left and scrolls, and every new line scrolls it to the
+  newest one — a terminal that does not follow its tail makes the reader scroll to find out what just
+  happened.
+- **An attached app's log arrives readable.** The device's line is
+  `Sep 30 19:28:57 蜜语-Dev(libxpc.dylib)[751] <Notice>: activating connection: ...`: the process name is
+  what the reader filtered BY, the library is a subsystem, and the level is already the line's kind, so
+  the panel's colour says it. What is kept is `19:28:57 activating connection: ...`.
+
+### Fixed
+
+- **`Stop` ends the debugger as well as the work.** A session left attached holds the device and leaves
+  the app stopped — the state nobody asked for, and the one that makes the next attach answer `already
+  being debugged`. `Stop` now disposes the session (which detaches before quitting, so the app runs on)
+  and only then stops the run, so it works even when there was no run to stop.
+
 ## 0.3.22
 
 ### Fixed
