@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.3.18
+
+### Added
+
+- **A second press of `View Hierarchy` stops the read.** A view read is a device attach driving a
+  debugger and can take half a minute; a read that cannot be called off is a panel that looks hung.
+  While it is reading, the button says so and a press ends it: the debugger is released (`dispose`,
+  which detaches before it quits, so the app is left running and the device is free for the next try)
+  rather than the spinner merely being hidden. The answer already on its way is dropped by an attempt
+  counter, so a cancelled read cannot repaint the panel with a tree nobody asked for any more. The
+  button is disabled while ANOTHER action runs, but never while its own does — the click that stops it
+  has to reach the button.
+
 ## 0.3.17
 
 ### Added
