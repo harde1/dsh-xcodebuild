@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.3.9
+
+### Fixed
+
+- **The device was named to lldb in a way lldb does not accept, so every physical-device read hung
+  and no tree ever appeared.** A phone has two names: `xcodebuild -showdestinations`, `xcdevice` and
+  `devicectl` call it by hardware UDID (`00008110-000078242EBB801E`), while lldb's `device list` and
+  `device select` know it only by its CoreDevice identifier (`B7485956-FD06-57E9-ACFD-D6D1E41EF111`).
+  Handing lldb the first is the worst kind of failure, because it is silent: lldb does not report an
+  unknown device, it selects nothing, and the `process attach` that follows waits forever. Measured
+  on the same phone, same session: `device select` on the name lldb knows returned in **4 s**; the
+  hardware UDID produced no answer in 90 s, every time.
+
+  Before attaching to a device, the target is now resolved against lldb's own `device list` — by
+  identifier, then by name — and used in the form lldb accepts. A device lldb does not have fails
+  immediately, naming what lldb *can* attach to, instead of freezing the app and then reporting a
+  timeout.
+
 ## 0.3.8
 
 ### Fixed

@@ -1,6 +1,6 @@
 {
   "name": "dsh-xcodebuild",
-  "version": "0.3.8",
+  "version": "0.3.9",
   "description": "Xcode build and development loop for DeepSeek Harness: build/test/clean/archive/run with a live, filterable build log panel.",
   "author": "chuckliang <harde1@163.com>",
   "keywords": [
@@ -77,7 +77,8 @@
     "./lookin-app": "./lib/lookin-app.js",
     "./view-details": "./lib/view-details.js",
     "./attach-failure": "./lib/attach-failure.js",
-    "./lldb-choice": "./lib/lldb-choice.js"
+    "./lldb-choice": "./lib/lldb-choice.js",
+    "./lldb-devices": "./lib/lldb-devices.js"
   },
   "files": [
     "lib",
