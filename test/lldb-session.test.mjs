@@ -293,6 +293,52 @@ section('an attach that times out says whether LLDB said anything')
   check(failed.note.includes('unable to attach'), 'with LLDB\'s own reason, not a timeout', failed.note)
 }
 
+section('a session that goes away detaches first, so it does not wedge the device')
+{
+  // Quitting while attached leaves the phone believing a debugger still holds the process: the next
+  // attach then answers `tried to attach to process already being debugged`, and relaunching stops
+  // returning. Detaching first hands the process back.
+  const { session, child } = sessionWith((line, c) => {
+    if (line.startsWith('device process attach')) c.say('Process 7 stopped')
+  })
+  session.start()
+  await session.attach({ kind: 'device', id: 'u', pid: 7, mode: 'attach' }, { timeoutMs: 3000, probeAfterMs: 100000 })
+  await session.dispose()
+  check(child.written.some((line) => line.startsWith('process detach')), 'process detach is sent', child.written.join(' | ').slice(0, 120))
+  const order = child.written.filter((line) => line.startsWith('process detach') || line === 'quit')
+  eq(order[0], 'process detach', 'and it is sent BEFORE quit')
+}
+
+section('an attach to an app that is ALREADY RUNNING is stopped by asking, not by waiting')
+{
+  // Measured on 蜜语-Dev: `device process attach -p 20399` returned in 3 s, `process status`
+  // answered `Process 20399 is running.`, and `bt` was refused because the process was not
+  // stopped. The plugin then waited 90 s for a stop that only ever comes from an interrupt.
+  const { session, child } = sessionWith((line, c) => {
+    if (line.startsWith('device process attach')) c.say('Process 7 is running.')
+    if (line.startsWith('process interrupt')) {
+      c.interrupted = true
+      c.say('Process 7 stopped')
+    }
+  })
+  session.start()
+  const answer = await session.attach({ kind: 'device', id: 'u', pid: 7, mode: 'attach' }, { timeoutMs: 6000, probeAfterMs: 100000 })
+  eq(answer.ok, true, 'the attach succeeds instead of timing out')
+  eq(answer.state, 'stopped', 'and the process is stopped, which is what an expression needs')
+  check(child.interrupted === true, 'because the debugger asked it to stop, the way Xcode does')
+}
+{
+  // A process that is stopped on its own (a suspended launch) must not be interrupted.
+  const { session, child } = sessionWith((line, c) => {
+    if (line.startsWith('device process attach')) c.say('Process 7 stopped')
+    if (line.startsWith('process interrupt')) c.interrupted = true
+  })
+  session.start()
+  const answer = await session.attach({ kind: 'device', id: 'u', pid: 7, mode: 'attach' }, { timeoutMs: 3000, probeAfterMs: 100000 })
+  eq(answer.ok, true, 'an attach that stops by itself still succeeds')
+  eq(child.interrupted, undefined, 'and nothing is interrupted that did not need it')
+}
+
 section('an error that arrives AFTER the attach command returned ends the wait at once')
 {
   // `device process attach -p` returns at once and its outcome arrives afterwards, outside the

@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.3.13
+
+### Fixed
+
+- **The session never asked the app to stop, so attaching to a running app waited forever.** Attaching
+  to an app that is already running does not stop it — the debugger has to ask, which is what Xcode
+  does. Worse, while the process runs, `process status` is QUEUED behind it and never answered:
+  measured on 蜜语-Dev through this very session, both commands completed and then not one line came
+  back for 30 s. The stop is now asked for with `process interrupt` (the one command LLDB answers
+  while the inferior runs) and re-asked every few seconds until it arrives.
+- **A session that goes away detaches before its debugger dies.** Quitting while attached leaves the
+  phone believing a debugger still holds the process, and the measured cost is the next attach
+  answering `tried to attach to process already being debugged`, after which even
+  `devicectl device process launch --terminate-existing` stopped returning and the app could no longer
+  be relaunched. That is the "always hangs" this plugin kept being blamed for, and part of it was this
+  plugin's own exit path.
+- **A state LLDB has already reported is no longer overwritten.** `running` was being replaced by
+  `attaching` on the way into the wait, which hid the one state that says the attach WORKED.
+
 ## 0.3.12
 
 ### Changed
