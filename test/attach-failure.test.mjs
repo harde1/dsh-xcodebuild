@@ -23,9 +23,12 @@ eq(/anti-debugging|PT_DENY_ATTACH/.test(e96.note), false, 'and no guard is inven
 eq(e96.remedies.length, 2, 'two concrete things to try')
 
 section('real silence is reported as silence, and nothing more')
-const quiet = attachFailure({ ...base, quiet: true, note: 'attached but the process never stopped: still attaching after 90000 ms, and LLDB printed nothing at all' })
-check(quiet.note.includes('Nothing was printed by LLDB'), 'it says nothing was printed', quiet.note)
-eq(/anti-debugging|PT_DENY_ATTACH|refuses a debugger/.test(quiet.note), false, 'without a diagnosis it cannot see')
+const quiet = attachFailure({ ...base, quiet: true, note: 'attached but the process never stopped: still attaching after 30000 ms, and LLDB printed nothing at all' })
+check(quiet.note.includes('Not one line came back'), 'it says nothing came back', quiet.note)
+check(quiet.note.includes('Xcode') && quiet.note.includes('replugging'),
+  'and names the one test that separates an app guard from a wedged device', quiet.note)
+eq(/anti-debugging|PT_DENY_ATTACH/.test(quiet.note), false, 'asserting no guard of its own')
+eq(quiet.remedies.length, 3, 'with the tests and the guard-free route')
 eq(quiet.refused, false, 'and it is not called a refusal')
 
 section('a run that really holds the app is named')

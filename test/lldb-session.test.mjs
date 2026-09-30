@@ -295,9 +295,9 @@ section('an attach that times out says whether LLDB said anything')
 
 section('an error that arrives AFTER the attach command returned ends the wait at once')
 {
-  // Measured on 蜜语-Dev: `device process attach -p` returns with nothing, and ~3 s later lldb
-  // prints `error: attach failed: no such process` (debugserver E96). The plugin read only each
-  // command's own slice, so it waited 90 s, called that silence, and blamed an anti-debugging guard.
+  // `device process attach -p` returns at once and its outcome arrives afterwards, outside the
+  // command's own slice. The plugin read only the slices, so an answer that DID arrive was invisible
+  // and the attach was waited out as silence.
   const { session } = sessionWith((line, c) => {
     if (line.startsWith('device process attach')) {
       setTimeout(() => c.say('error: attach failed: no such process'), 150)

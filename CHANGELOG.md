@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.3.12
+
+### Changed
+
+- **A silent attach is waited on for 30 s, not 90.** A refusal never answers at all, so waiting
+  longer cannot turn it into a success, and 90 s of nothing is indistinguishable from a wedged
+  channel while costing the user a minute and a half per try. `devicectl device process launch` is
+  bounded at 30 s too, and says when it was the launch itself that never returned — launching is the
+  device's control channel, one step before any debugger, and it was measured running past 84 s with
+  no answer while `devicectl device info details` answered in 2 s in the same minute.
+- **The silent failure names both real causes and the one test that separates them**, instead of
+  asserting one. This note has now claimed an anti-debugging guard and then denied one for the same
+  app; an app that refuses debuggers and a device with a wedged debug channel look identical from
+  here. It now says to attach the same app from Xcode: if Xcode attaches, the app is turning
+  debuggers away; if Xcode cannot either, the device's channel is wedged. On 蜜语-Dev the static
+  evidence points at the first: `UMJailbreak test string`, `/private/umTest_Jailbreak.txt`,
+  `Error: sysctl, take 1|2`, the Cydia and MobileSubstrate paths, and a `sysctl` P_TRACED check —
+  with no `ptrace` import and no inline `svc #0x80`, so the guard is the sysctl kind. The app's
+  `get-task-allow = true` says nothing about an in-app guard, which is how that evidence was
+  misread.
+
 ## 0.3.11
 
 ### Fixed
