@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.11
+
+### Fixed
+
+- **0.3.9 matched the phone against the app's name, so every device read failed with
+  "蜜语-Dev is not a device lldb can attach to".** Its fallback compared lldb's device names with
+  the target's `name`, which is the process name, not the phone's. The hardware udid is now bridged
+  to lldb's identifier through `devicectl list devices`, which reports both names of each phone
+  (`hardwareProperties.udid` and `identifier`); the phone's own name is only a fallback, and the app's
+  name is never used for it.
+
 ## 0.3.10
 
 ### Fixed

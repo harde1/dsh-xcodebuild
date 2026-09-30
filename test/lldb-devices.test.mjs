@@ -33,18 +33,22 @@ eq(connectedDevices(devices).length, 1, 'one is connected')
 eq(connectedDevices(devices)[0].name, 'chuck的iPhone', 'and it is the one that is plugged in')
 
 section('the hardware UDID is translated to the identifier lldb wants')
-eq(resolveDeviceId(devices, { id: '00008110-000078242EBB801E', name: 'chuck的iPhone' }),
+eq(resolveDeviceId(devices, { id: '00008110-000078242EBB801E', coreDeviceId: 'B7485956-FD06-57E9-ACFD-D6D1E41EF111' }),
   'B7485956-FD06-57E9-ACFD-D6D1E41EF111',
-  'the UDID from -showdestinations is not what lldb knows, but the name resolves it')
-eq(resolveDeviceId(devices, { id: 'B7485956-FD06-57E9-ACFD-D6D1E41EF111', name: 'chuck的iPhone' }),
+  'the hardware udid is bridged by the identifier devicectl reports for it')
+eq(resolveDeviceId(devices, { id: '00008110-000078242EBB801E', deviceName: 'chuck的iPhone' }),
+  'B7485956-FD06-57E9-ACFD-D6D1E41EF111', 'without the bridge, the phone\'s own name resolves it')
+eq(resolveDeviceId(devices, { id: '00008110-000078242EBB801E', name: '蜜语-Dev' }), '',
+  'the app\'s name is never mistaken for the phone\'s')
+eq(resolveDeviceId(devices, { id: 'B7485956-FD06-57E9-ACFD-D6D1E41EF111' }),
   'B7485956-FD06-57E9-ACFD-D6D1E41EF111', 'an identifier lldb already knows is kept')
-eq(resolveDeviceId(devices, { id: '', name: 'chuck的iPhone' }), 'B7485956-FD06-57E9-ACFD-D6D1E41EF111',
+eq(resolveDeviceId(devices, { id: '', deviceName: 'chuck的iPhone' }), 'B7485956-FD06-57E9-ACFD-D6D1E41EF111',
   'a name alone is enough')
 eq(resolveDeviceId(devices, { id: '00008110-000078242EBB801E', name: '' }), '',
   'an unknown identifier with no name to fall back on resolves to nothing')
-eq(resolveDeviceId(devices, { id: 'AEDB651E-30D9-5E3F-A930-015355F22C1A', name: 'iPhone app to work' }), '',
+eq(resolveDeviceId(devices, { id: 'AEDB651E-30D9-5E3F-A930-015355F22C1A', deviceName: 'iPhone app to work' }), '',
   'a device lldb knows but cannot reach is not a target')
-eq(resolveDeviceId(devices, { id: '', name: 'not my phone' }), '', 'a name nobody has resolves to nothing')
+eq(resolveDeviceId(devices, { id: '', deviceName: 'not my phone' }), '', 'a name nobody has resolves to nothing')
 eq(resolveDeviceId([], { id: 'B7485956-FD06-57E9-ACFD-D6D1E41EF111', name: 'x' }), '',
   'with nothing connected, nothing resolves')
 
