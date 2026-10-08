@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.29
+
+### Fixed
+
+- **The debugger drawer sits on the bottom edge even when the log above it is empty.** The empty log is
+  its own element, `.xcb-empty`, and it had no `flex:1` — it was only as tall as its text, so the drawer
+  below it drifted up and the panel's leftover height collected *under* the drawer. The empty state now
+  takes the height the log would have taken, so the drawer is pinned to the bottom edge whether or not
+  anything has been logged.
+
 ## 0.3.28
 
 ### Added
