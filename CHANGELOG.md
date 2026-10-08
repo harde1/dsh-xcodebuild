@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.3.26
+
+### Added
+
+- **The device list says how each phone is connected: `<name> (usb)` or `<name> (wifi)`.** A phone on
+  Wi-Fi and a phone on a cable were the same row, and the difference decides what works — the classic
+  channel (the live log reader, `ios-deploy`) needs the cable, while attaching and the view tree ride
+  CoreDevice either way. `idevice_id -l` is the usbmuxd view of what is plugged in, measured empty with
+  the phone on Wi-Fi and listing its udid the moment the cable went in, so it is the answer to "plugged
+  in?" and nothing else has to be asked. A device no source could reach keeps its bare name instead of
+  being labelled with a guess, and a row that already says how it is connected is left alone.
+
 ## 0.3.25
 
 ### Added
