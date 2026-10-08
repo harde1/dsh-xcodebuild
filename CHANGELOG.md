@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.3.27
+
+### Fixed
+
+- **The app-log read no longer freezes the debugger.** Both went through `runLldb`, which takes one
+  `busy` lock for the whole drawer: every 15 s the log read held it, and every button in the drawer is
+  disabled while it does — up to half a minute when the fallback copies a log file over CoreDevice — so
+  presses meant for the debugger were swallowed and the environment felt intermittent. Reading a log
+  never touches lldb, so it now has its own lock (`appLogBusy`, which also refuses to start a second
+  read) and its own message area: the log panel's error line carries the log's notes, the drawer's
+  carries the debugger's. A click meant for `View Hierarchy`, `Interrupt` or `Continue` can no longer
+  land while a log read is in flight.
+
 ## 0.3.26
 
 ### Added
