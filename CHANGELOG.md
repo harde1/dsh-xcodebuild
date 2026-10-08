@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.3.28
+
+### Added
+
+- **Closing the debugger drawer releases the debugger.** A session left attached holds the device and
+  leaves the app stopped — the state that makes the next attach answer `already being debugged` — and a
+  closed panel is not using it, so every way of closing the drawer now goes through one place that
+  disposes the session (which detaches before it quits, so the app keeps running) and clears the
+  panel's own picture of it. The host's `dispose` is idempotent, so a session this panel never knew
+  about — one the model opened — is released as well. `Stop` already did this; closing now does too, so
+  "I am done looking" and "I am done running" leave the device in the same state.
+
 ## 0.3.27
 
 ### Fixed
