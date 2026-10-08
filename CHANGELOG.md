@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.4.4
+
+### Fixed
+
+- **Lookin cannot be pressed while the debugger is attaching** (the blinking yellow light).
+  - Both exports read the tree, which needs the app stopped, and an attach in flight is exactly what
+    has not delivered that stop yet. Clicking then only queued a second attach behind the first.
+  - The button is now disabled while attaching, and while another drawer operation holds the debugger
+    (the same rule View Hierarchy follows). Its title says what it is waiting for.
+  - It becomes usable again as soon as the light turns green.
+
 ## 0.4.3
 
 ### Changed

@@ -253,6 +253,11 @@ async function render(children) {
 }
 
 /** React keeps its props on the node; reach a handler without DOM event plumbing. */
+/** Let the drawer's own state poll run once, so a change in the fixture's session state shows. */
+async function refreshLldbIn() {
+  await new Promise((resolve) => setTimeout(resolve, 1600))
+}
+
 function propsOf(node) {
   const key = Object.keys(node).find((name) => name.startsWith('__reactProps$'))
   if (key === undefined) throw new Error('React stored no props on this node')
@@ -2734,8 +2739,23 @@ section('the LLDB drawer')
 
   // The export is written as the tree is read, so the button opens a file that exists — and
   // the head knows which file, because the dump's own answer carried the path.
+  // While attaching (the blinking yellow light) Lookin waits: both exports read the tree, which needs
+  // the stop the attach has not delivered yet.
+  {
+    const saved = sessionState
+    sessionState = 'attaching'
+    await act(async () => { await refreshLldbIn(container) })
+    const waiting = Array.from(container.querySelectorAll('.xcb-btn')).find((node) => node.textContent === 'Lookin')
+    check(waiting !== undefined && waiting.disabled === true, 'during an attach the Lookin button cannot be pressed')
+    check(waiting !== undefined && /attach/i.test(waiting.getAttribute('title') ?? ''),
+      'and its title says it is waiting for the attach', waiting?.getAttribute('title'))
+    check(container.querySelector('.xcb-lldb-light.blink') !== null, 'while the light blinks yellow')
+    sessionState = saved
+    await act(async () => { await refreshLldbIn(container) })
+  }
   const lookinButton = Array.from(container.querySelectorAll('.xcb-btn')).find((node) => node.textContent === 'Lookin')
   check(lookinButton !== undefined, 'a read tree offers a Lookin button')
+  check(lookinButton.disabled === false, 'and once the app is stopped it can be pressed again')
   check(lookinButton.className.includes('xcb-lldb-lookin'),
     'and it is the drawer\'s own control, not a log or run button', lookinButton.className)
   // Lookin opens a choice rather than a file: the tree alone, or the tree with every view rendered.
