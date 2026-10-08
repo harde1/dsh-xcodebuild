@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.4.1
+
+### Changed
+
+- **The LLDB transcript behaves like the build log.**
+  - It follows its tail only while the reader is at the bottom. Scrolling up to read leaves the view
+    where it is, instead of snapping back to the end on every new line.
+  - A `↓ N new` / `↓ Latest` button brings it back and resumes following.
+  - Returning to the log tab re-arms following.
+  - Lines get the build log's number gutter and colours by kind: the echoed `(lldb)` command, `error:`
+    lines, warnings, and process state changes (`Process N stopped / resuming / exited`).
+
 ## 0.4.0
 
 ### Added

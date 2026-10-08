@@ -2905,6 +2905,29 @@ section('the LLDB drawer')
   equal(sent[0].body.command, 'po 1 + 1', 'and sends exactly what was typed')
   check(container.querySelector('.xcb-lldb-log') !== null, 'the transcript is what the drawer shows after a command')
 
+  // The transcript reads like the build log: numbered, coloured by kind, following its tail.
+  {
+    const rows = Array.from(container.querySelectorAll('.xcb-lldb-line'))
+    check(rows.length > 0 && rows.every((row) => row.querySelector('.xcb-num') !== null && row.querySelector('.xcb-txt') !== null),
+      'each transcript line has a number gutter and its text, like the build log')
+    check(rows.some((row) => row.className.includes('xcb-lldb-k-state')),
+      'a "Process N stopped" line is marked as a state change', rows.map((row) => row.className).join(' | '))
+    const log = container.querySelector('.xcb-lldb-log')
+    // jsdom does no layout, so the geometry a scroll reads is given to it: a tall transcript in a
+    // short box, scrolled up away from the end.
+    Object.defineProperty(log, 'scrollHeight', { configurable: true, get: () => 1000 })
+    Object.defineProperty(log, 'clientHeight', { configurable: true, get: () => 100 })
+    check(container.querySelector('.xcb-lldb-jump') === null, 'at the tail there is no jump button: it is already following')
+    log.scrollTop = 300
+    await act(async () => { propsOf(log).onScroll({ currentTarget: log }) })
+    const jump = container.querySelector('.xcb-lldb-jump')
+    check(jump !== null, 'scrolled up, the transcript stops following and offers the way back')
+    equal(jump?.textContent, '↓ Latest', 'which says it goes to the latest output')
+    await act(async () => { propsOf(jump).onClick() })
+    equal(log.scrollTop, 1000, 'clicking it scrolls to the newest line')
+    check(container.querySelector('.xcb-lldb-jump') === null, 'and following resumes, so the button goes away')
+  }
+
   // Detaching unmounts: the reading buttons go, and Apps comes back to pick the next one.
   await act(async () => {
     propsOf(buttonNamed(container, 'Detach')).onClick()
@@ -3106,6 +3129,45 @@ section('the LLDB drawer')
   check(thirdRender.container.querySelector('.xcb-lldb') === null,
     'and it stays closed while that same session runs — only a NEW session opens it')
 
+}
+
+section('a Build & Run mounts the app it launched')
+{
+  let runStatus = 'running'
+  const calls = serve({
+    state: () => ({ workspace: '/tmp', activeRunId: runStatus === 'running' ? 'run-1' : null, runs: [] }),
+    doctor: () => ({ tools: [], missingRequired: [] }),
+    detect: (body) => ({ kind: 'workspace', root: '/tmp', location: body.path, name: 'P', schemes: [], configurations: [], sweetpadDefaults: {} }),
+    destinations: () => ({ destinations: [] }),
+    poll: () => ({
+      missing: false, lines: [], next: 1, status: runStatus, exitCode: null, warningCount: 0, errors: [], durationMs: 0,
+      artifact: { appPath: '/tmp/Build/HIDProbe.app', bundleId: 'com.example.HIDProbe', pid: 13290, attached: true },
+    }),
+    stop: () => { runStatus = 'cancelled'; return { ok: true } },
+    lldb: () => ({ active: false, session: null, next: 0, firstAvailable: 1, lines: [] }),
+  })
+  const instance = mount({})
+  const { container } = await render([
+    React.createElement(instance.components.get('dsh-xcodebuild-panel').component, { key: 'overlay' }),
+    React.createElement(instance.components.get('dsh-xcodebuild-toggle').component, { key: 'toggle', sessionId: 'lldb-run' }),
+  ])
+  await act(async () => {
+    container.querySelector('.xcb-trigger').dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+  })
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 900)) })
+  await act(async () => {
+    container.querySelector('.xcb-lldb-toggle').dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+  })
+  check(buttonNamed(container, 'Apps') === undefined, 'with the app the run launched, there is nothing to pick: no Apps')
+  check(buttonNamed(container, 'View Hierarchy') !== undefined, 'and View Hierarchy reads that app')
+
+  await act(async () => {
+    propsOf(buttonNamed(container, 'Stop')).onClick()
+    await new Promise((resolve) => setTimeout(resolve, 80))
+  })
+  check(calls.some((call) => call.method === 'stop'), 'Stop ends the run')
+  check(buttonNamed(container, 'Apps') !== undefined, 'and Apps comes back once the app is let go')
+  check(buttonNamed(container, 'View Hierarchy') === undefined, 'with View Hierarchy gone')
 }
 
 console.log(`${checks - failures}/${checks} checks passed`)
