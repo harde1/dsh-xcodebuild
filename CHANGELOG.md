@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.3.25
+
+### Added
+
+- **The app's log now arrives over CoreDevice, so a phone with no cable still has logs.** `idevicesyslog`
+  speaks the classic USB channel, and a phone paired for Wi-Fi is absent from it (`idevice_id -l` empty
+  while `devicectl list devices` reports it available) — reporting that was not a fix. CoreDevice has no
+  live log stream and does not need one: the app writes its own log, and `devicectl device copy from`
+  takes it out of the app's data container over the same tunnel that attaching uses. Measured on
+  蜜语-Dev with no cable: the container listed `log_2026-10-08-10-19-16.683.log` (103 KB) and the copy
+  came back with its last 300 lines, classified for the panel's level buttons like any other log. The
+  bundle id is taken from the build the panel remembers, and looked up in the installed apps when it is
+  not known. The refresh interval is 15 s rather than 5 because one of these reads takes tens of seconds.
+
 ## 0.3.24
 
 ### Fixed
