@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.3.24
+
+### Fixed
+
+- **`idevicesyslog`'s complaints were printed as if the app had logged them.** `Device with udid
+  <udid> not found!` and `Could not start logger for udid <udid>` appeared in the log panel as app
+  output. They are the reader failing to start, not the app talking: the app log needs the classic USB
+  channel, and a phone reachable over CoreDevice alone (paired for Wi-Fi, no cable) is not on it —
+  measured with `idevice_id -l` empty and `system_profiler SPUSBDataType` showing no iPhone while
+  `devicectl list devices` reported the phone as available. That is now one sentence naming the channel
+  and the fix, and the panel says it instead of showing lines the app never produced. Attaching and the
+  view tree never needed this channel.
+
 ## 0.3.23
 
 ### Changed
