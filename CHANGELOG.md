@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.4.6
+
+### Fixed
+
+- **The LLDB transcript's right-click menu is no longer cut off when the log is short.**
+  - It was positioned inside the drawer, and both the transcript (`overflow:auto`) and the panel
+    (`overflow:hidden`) clipped it.
+  - It is now a fixed layer at the pointer, above everything else.
+  - Near the window's edge it opens toward the room there is, like a native menu.
+
 ## 0.4.5
 
 ### Added

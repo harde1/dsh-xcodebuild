@@ -2967,11 +2967,20 @@ section('the LLDB drawer')
     await act(async () => { propsOf(log).onContextMenu({ preventDefault() {}, clientX: 40, clientY: 30, currentTarget: log }) })
     const menu = container.querySelector('.xcb-lldb-ctxmenu')
     check(menu !== null, 'a right-click on the transcript opens its menu')
+    // Fixed at the pointer, in viewport coordinates: positioned inside the drawer it was clipped by
+    // the transcript's and the panel's overflow whenever the log was short.
+    equal([menu?.style.left, menu?.style.top], ['40px', '30px'], 'it opens at the pointer, in viewport coordinates')
+    const sheet = Array.from(document.querySelectorAll('style')).map((node) => node.textContent).join('')
+    check(/\.xcb-ctxmenu\{position:fixed;z-index:2147483000/.test(sheet), 'as a fixed layer above everything, so a short log cannot clip it')
+    await act(async () => { propsOf(log).onContextMenu({ preventDefault() {}, clientX: window.innerWidth - 5, clientY: window.innerHeight - 5, currentTarget: log }) })
+    const flipped = container.querySelector('.xcb-lldb-ctxmenu')
+    check(Number.parseFloat(flipped.style.left) < window.innerWidth - 5 && Number.parseFloat(flipped.style.top) < window.innerHeight - 5,
+      'and near the window\'s edge it opens toward the room there is', `${flipped.style.left} ${flipped.style.top}`)
     equal(Array.from(menu?.querySelectorAll('.xcb-ctxmenu-item') ?? []).map((item) => item.firstChild.textContent),
       ['Select All', 'Copy', 'Clear'], 'with Select All and Copy, and Clear after them')
     const before = container.querySelectorAll('.xcb-lldb-line').length
     check(before > 0, 'there is something to clear', String(before))
-    await act(async () => { propsOf(Array.from(menu.querySelectorAll('.xcb-ctxmenu-item')).find((item) => item.textContent === 'Clear')).onClick() })
+    await act(async () => { propsOf(Array.from(flipped.querySelectorAll('.xcb-ctxmenu-item')).find((item) => item.textContent === 'Clear')).onClick() })
     equal(container.querySelectorAll('.xcb-lldb-line').length, 0, 'Clear empties the transcript')
     check(container.querySelector('.xcb-lldb-ctxmenu') === null, 'and the menu closes on a choice')
     // The cursor is not rewound: the next poll brings what comes AFTER the clear, not the old lines.
