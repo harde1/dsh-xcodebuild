@@ -2640,6 +2640,7 @@ section('the LLDB drawer')
   // Two states the fixture can be moved between, so Continue and Interrupt can each be
   // seen to appear when the app is in the state that button is for.
   let sessionState = 'stopped'
+  const transcript = [{ n: 1, t: 'Process 13290 stopped' }, { n: 2, t: 'Target 0: (HIDProbe) stopped.' }]
   const sessionAt = (state) => ({ ...TREE.session, state })
   const calls = serve({
     state: () => ({ workspace: '/tmp', activeRunId: null, runs: [] }),
@@ -2675,9 +2676,10 @@ section('the LLDB drawer')
       }
       if (body.op === 'continue') { sessionState = 'running'; return { ok: true, note: 'the app is running again, still attached', session: sessionAt('running') } }
       if (body.op === 'interrupt') { sessionState = 'stopped'; return { ok: true, note: '', session: sessionAt('stopped') } }
-      return sessionActive
-        ? { active: true, session: sessionAt(sessionState), next: 2, firstAvailable: 1, lines: [{ n: 1, t: 'Process 13290 stopped' }, { n: 2, t: 'Target 0: (HIDProbe) stopped.' }] }
-        : { active: false, session: null, next: 0, firstAvailable: 1, lines: [] }
+      if (!sessionActive) return { active: false, session: null, next: 0, firstAvailable: 1, lines: [] }
+      // A forward-only cursor, like the host's: only lines at or after `from` come back.
+      const from = Number.isFinite(body.from) ? body.from : 0
+      return { active: true, session: sessionAt(sessionState), next: transcript.length + 1, firstAvailable: 1, lines: transcript.filter((line) => line.n >= from) }
     },
   })
 
@@ -2960,6 +2962,23 @@ section('the LLDB drawer')
     await act(async () => { propsOf(jump).onClick() })
     equal(log.scrollTop, 1000, 'clicking it scrolls to the newest line')
     check(container.querySelector('.xcb-lldb-jump') === null, 'and following resumes, so the button goes away')
+
+    // Right-click: Select All, Copy, and Clear.
+    await act(async () => { propsOf(log).onContextMenu({ preventDefault() {}, clientX: 40, clientY: 30, currentTarget: log }) })
+    const menu = container.querySelector('.xcb-lldb-ctxmenu')
+    check(menu !== null, 'a right-click on the transcript opens its menu')
+    equal(Array.from(menu?.querySelectorAll('.xcb-ctxmenu-item') ?? []).map((item) => item.firstChild.textContent),
+      ['Select All', 'Copy', 'Clear'], 'with Select All and Copy, and Clear after them')
+    const before = container.querySelectorAll('.xcb-lldb-line').length
+    check(before > 0, 'there is something to clear', String(before))
+    await act(async () => { propsOf(Array.from(menu.querySelectorAll('.xcb-ctxmenu-item')).find((item) => item.textContent === 'Clear')).onClick() })
+    equal(container.querySelectorAll('.xcb-lldb-line').length, 0, 'Clear empties the transcript')
+    check(container.querySelector('.xcb-lldb-ctxmenu') === null, 'and the menu closes on a choice')
+    // The cursor is not rewound: the next poll brings what comes AFTER the clear, not the old lines.
+    transcript.push({ n: transcript.length + 1, t: '(lldb) po 2' })
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 1600)) })
+    const after = Array.from(container.querySelectorAll('.xcb-lldb-line .xcb-txt')).map((node) => node.textContent)
+    equal(after, ['(lldb) po 2'], 'and only lines said after the clear come back', after.join(' | '))
   }
 
   // Detaching unmounts: the reading buttons go, and Apps comes back to pick the next one.

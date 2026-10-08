@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.4.5
+
+### Added
+
+- **Right-click menu on the LLDB transcript: Select All, Copy, Clear.**
+  - The browser's own menu cannot take an extra entry, so the panel draws one.
+  - Copy takes the selection, or the whole transcript when nothing is selected.
+  - Clear empties the transcript in the panel. Its read cursor is not rewound, so what LLDB says next
+    still arrives and the cleared lines do not come back.
+  - The menu closes on a choice, on a click elsewhere, or on Esc.
+
 ## 0.4.4
 
 ### Fixed
