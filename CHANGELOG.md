@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.4.0
+
+### Added
+
+- **Lookin offers a quick and a full export.** `View Hierarchy` now writes the tree alone, which is fast
+  and stops the app only to read it. `Lookin` opens a choice:
+  - **Quick** opens that file.
+  - **Full** renders every view's own images in the background, in batches of 40. The app is stopped
+    only while a batch renders, so the phone stays usable between batches. Progress is shown as stage,
+    views rendered and percent, and stays in the drawer when the popup is closed. When everything is
+    pulled, the file opens in Lookin by itself. `Cancel` stops after the batch in hand, releases the
+    app and writes nothing.
+- **History of the view trees read.** Exports are kept in `~/Library/Caches/dsh-xcodebuild/lookin/` with
+  a metadata file beside each, so `History` can list them (kind, app, time, views, images, size) and
+  open or delete each one. Only the newest three are kept, so disk use stays bounded. A delete accepts
+  only names this cache writes, so it cannot step outside the directory.
+
+### Changed
+
+- `View Hierarchy` no longer renders images on every read. Rendering was most of a read's time, and
+  most reads only want the structure.
+
 ## 0.3.29
 
 ### Fixed

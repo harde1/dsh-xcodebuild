@@ -259,6 +259,23 @@ function propsOf(node) {
   return node[key]
 }
 
+const buttonNamed = (container, label) => Array.from(container.querySelectorAll('.xcb-btn')).find((node) => node.textContent === label)
+
+/** Mount an app the way a person does: Apps, then the first running app in the list. */
+async function mountApp(container) {
+  await act(async () => {
+    propsOf(buttonNamed(container, 'Apps')).onClick()
+    await new Promise((resolve) => setTimeout(resolve, 60))
+  })
+  await act(async () => {
+    propsOf(container.querySelector('.xcb-lldb-apps-row')).onClick()
+    await new Promise((resolve) => setTimeout(resolve, 80))
+  })
+}
+
+const APPS = [{ pid: 13290, name: 'HIDProbe', path: '/private/var/containers/Bundle/Application/X/HIDProbe.app/HIDProbe' }]
+const MOUNTED = { state: 'running', detail: '', pid: 13290, target: 'HIDProbe', attached: { kind: 'device', id: 'u', name: 'HIDProbe', mode: 'attach' }, lineCount: 1, firstAvailable: 1 }
+
 // =========================================================================
 // The shell has better-sidebar: the dock owns the panel.
 // =========================================================================
@@ -2607,6 +2624,11 @@ section('the LLDB drawer')
     session: { state: 'stopped', detail: '', pid: 13290, target: 'HIDProbe', attached: { kind: 'device', id: 'u', name: 'HIDProbe', mode: 'attach' }, lineCount: 3, firstAvailable: 1 },
   }
   let sessionActive = false
+  let fullJob = null
+  let history = [
+    { name: 'lookin-2026-10-08T10-30-05-full.lookin', kind: 'full', app: '蜜语-Dev', views: 412, images: 398, created: '2026-10-08T10:30:05.000Z', bytes: 3 * 1024 * 1024 },
+    { name: 'lookin-2026-10-08T09-00-00-quick.lookin', kind: 'quick', app: '蜜语-Dev', views: 410, images: 0, created: '2026-10-08T09:00:00.000Z', bytes: 90 * 1024 },
+  ]
   // Which host the fixture is pretending to be: one with Lookin.app, or one without. Flipped
   // inside the flow below, because that is exactly what a re-read after installing it looks like.
   let lookinAvailable = true
@@ -2622,8 +2644,17 @@ section('the LLDB drawer')
     lldb: (body) => {
       // Like the host: taking a dump leaves a session behind, so the state poll that
       // follows it agrees with the dump's own answer instead of contradicting it.
-      if (body.op === 'view') { sessionActive = true; return { ...TREE, lookinAvailable } }
+      if (body.op === 'processes') return { ok: true, processes: APPS, note: '' }
+      if (body.op === 'attach') { sessionActive = true; sessionState = 'running'; return { ok: true, note: '', continued: true, session: sessionAt('running') } }
+      if (body.op === 'detach') { sessionState = 'idle'; return { ok: true, note: '', session: sessionAt('idle') } }
+      if (body.op === 'view') { sessionActive = true; sessionState = 'stopped'; return { ...TREE, lookinAvailable } }
       if (body.op === 'lookin') return { ok: true, path: TREE.lookinPath, note: 'opened in Lookin', session: sessionAt(sessionState) }
+      if (body.op === 'lookinFull') { fullJob = { id: 1, stage: 'rendering', done: 40, total: 120, percent: 31, note: '', path: null, name: '', finished: false, cancelled: false, failed: false }; return { ok: true, job: fullJob } }
+      if (body.op === 'lookinJob') return { ok: true, job: fullJob }
+      if (body.op === 'lookinCancel') { fullJob = { ...fullJob, cancelled: true, note: 'cancelling' }; return { ok: true, job: fullJob } }
+      if (body.op === 'lookinHistory') return { ok: true, entries: history, keep: 3 }
+      if (body.op === 'lookinOpenFile') return { ok: true, note: 'opened in /Applications/Lookin.app', path: body.name }
+      if (body.op === 'lookinDelete') { history = history.filter((entry) => entry.name !== body.name); return { ok: true, entries: history, note: 'deleted' } }
       if (body.op === 'command') return { ok: true, note: '', output: '2', session: sessionAt(sessionState) }
       if (body.op === 'node') {
         return {
@@ -2668,10 +2699,18 @@ section('the LLDB drawer')
   })
   check(container.querySelector('.xcb-lldb') !== null, 'Command-L opens the drawer')
   equal(container.querySelectorAll('.xcb-line').length, 0, 'and it is not a log row: it uses its own classes')
-  check(
-    Array.from(container.querySelectorAll('.xcb-btn')).every((node) => node.textContent !== 'Lookin'),
-    'no Lookin button before a tree has been read: there would be nothing to open',
-  )
+  // Nothing is mounted yet, so only the way to mount something is offered.
+  check(buttonNamed(container, 'Apps') !== undefined, 'with no app mounted, Apps is offered')
+  check(buttonNamed(container, 'View Hierarchy') === undefined && buttonNamed(container, 'Lookin') === undefined,
+    'and nothing that reads an app is, because there is no app to read')
+
+  await mountApp(container)
+  const attachCall = calls.filter((call) => call.method === 'lldb' && call.body.op === 'attach').at(-1)
+  check(attachCall !== undefined && attachCall.body.pid === 13290 && attachCall.body.process === 'HIDProbe',
+    'picking an app attaches to that process', JSON.stringify(attachCall?.body))
+  equal(attachCall?.body.continue, true, 'and asks for it to keep running once mounted')
+  check(buttonNamed(container, 'Apps') === undefined, 'once mounted, Apps goes away')
+  check(buttonNamed(container, 'Lookin') !== undefined, 'and Lookin is offered')
 
   // The priority feature: one click reads the running app's view tree.
   const viewButton = Array.from(container.querySelectorAll('.xcb-btn')).find((node) => node.textContent === 'View Hierarchy')
@@ -2699,15 +2738,73 @@ section('the LLDB drawer')
   check(lookinButton !== undefined, 'a read tree offers a Lookin button')
   check(lookinButton.className.includes('xcb-lldb-lookin'),
     'and it is the drawer\'s own control, not a log or run button', lookinButton.className)
-  check(lookinButton.getAttribute('title').includes('lookin-2026-09-29T14-50-01.lookin'),
-    'whose title names the file the read wrote', lookinButton.getAttribute('title'))
+  // Lookin opens a choice rather than a file: the tree alone, or the tree with every view rendered.
+  await act(async () => { propsOf(lookinButton).onClick() })
+  const choice = container.querySelector('.xcb-lookin-popup')
+  check(choice !== null, 'clicking Lookin opens a popup to choose the export')
+  check(choice !== null && choice.querySelector('.xcb-lookin-quick') !== null && choice.querySelector('.xcb-lookin-full') !== null,
+    'which offers the quick and the full export')
   await act(async () => {
-    propsOf(lookinButton).onClick()
+    propsOf(choice.querySelector('.xcb-lookin-quick')).onClick()
     await new Promise((resolve) => setTimeout(resolve, 60))
   })
   const openCall = calls.filter((call) => call.method === 'lldb' && call.body.op === 'lookin').at(-1)
-  check(openCall !== undefined, 'clicking it asks the host to open the export')
-  equal(openCall.body.open, true, 'and to open it, not merely report where it is')
+  check(openCall !== undefined, 'the quick choice asks the host to open the export the read wrote')
+  equal(openCall?.body.open, true, 'and to open it, not merely report where it is')
+  check(container.querySelector('.xcb-lookin-popup') === null, 'and the popup goes away')
+
+  // The full export runs in the background: progress is shown, and it can be cancelled.
+  await act(async () => { propsOf(Array.from(container.querySelectorAll('.xcb-btn')).find((node) => node.textContent === 'Lookin')).onClick() })
+  await act(async () => {
+    propsOf(container.querySelector('.xcb-lookin-full')).onClick()
+    await new Promise((resolve) => setTimeout(resolve, 60))
+  })
+  const fullCall = calls.filter((call) => call.method === 'lldb' && call.body.op === 'lookinFull').at(-1)
+  check(fullCall !== undefined, 'the full choice starts a background export on the host')
+  const progress = container.querySelector('.xcb-lookin-progress')
+  check(progress !== null && progress.textContent.includes('40/120') && progress.textContent.includes('31%'),
+    'and its progress is shown, with the views rendered so far', progress === null ? '(none)' : progress.textContent)
+  check(container.querySelector('.xcb-lookin-full').disabled === true, 'a second full export cannot be started over the first')
+  check(container.querySelector('.xcb-lookin-job') !== null, 'the drawer itself says an export is running, popup or not')
+  await act(async () => {
+    propsOf(container.querySelector('.xcb-lookin-cancel')).onClick()
+    await new Promise((resolve) => setTimeout(resolve, 60))
+  })
+  check(calls.some((call) => call.method === 'lldb' && call.body.op === 'lookinCancel'), 'Cancel asks the host to stop the export')
+  equal(container.querySelector('.xcb-lookin-cancel')?.textContent, 'Cancelling...', 'and says it is cancelling until the host has let go')
+  // The host finishes cancelling; the poll picks that up and the drawer stops saying it is busy.
+  fullJob = { ...fullJob, stage: 'cancelled', finished: true, percent: 0, note: 'cancelled: the app was released and nothing was written' }
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 900)) })
+  check(container.querySelector('.xcb-lookin-job') === null, 'a finished export no longer shows as running')
+  check(container.querySelector('.xcb-lookin-progress')?.textContent.includes('the app was released') === true,
+    'and the popup says what the cancel did')
+  await act(async () => { propsOf(Array.from(container.querySelectorAll('.xcb-lookin-popup .xcb-btn')).find((node) => node.textContent === 'Close')).onClick() })
+  check(container.querySelector('.xcb-lookin-popup') === null, 'Close dismisses the popup')
+
+  // History: the kept trees, newest first, each openable and deletable.
+  await act(async () => {
+    propsOf(Array.from(container.querySelectorAll('.xcb-btn')).find((node) => node.textContent === 'History')).onClick()
+    await new Promise((resolve) => setTimeout(resolve, 60))
+  })
+  equal(container.querySelectorAll('.xcb-lookin-row').length, 2, 'History lists the kept trees')
+  const firstRow = container.querySelector('.xcb-lookin-row')
+  check(firstRow.textContent.includes('Full') && firstRow.textContent.includes('412 views') && firstRow.textContent.includes('398 images') && firstRow.textContent.includes('3.0 MB'),
+    'each row says what it is', firstRow.textContent)
+  await act(async () => {
+    propsOf(firstRow.querySelector('.xcb-lookin-open')).onClick()
+    await new Promise((resolve) => setTimeout(resolve, 60))
+  })
+  equal(calls.filter((call) => call.method === 'lldb' && call.body.op === 'lookinOpenFile').at(-1)?.body.name,
+    'lookin-2026-10-08T10-30-05-full.lookin', 'Open asks for that row\'s file by name')
+  await act(async () => {
+    propsOf(container.querySelector('.xcb-lookin-row .xcb-lookin-delete')).onClick()
+    await new Promise((resolve) => setTimeout(resolve, 60))
+  })
+  equal(calls.filter((call) => call.method === 'lldb' && call.body.op === 'lookinDelete').at(-1)?.body.name,
+    'lookin-2026-10-08T10-30-05-full.lookin', 'Delete asks for that row by name')
+  equal(container.querySelectorAll('.xcb-lookin-row').length, 1, 'and the row is gone from the list')
+  await act(async () => { propsOf(container.querySelector('.xcb-lookin-popup')).onClick({ target: container.querySelector('.xcb-lookin-popup'), currentTarget: container.querySelector('.xcb-lookin-popup') }) })
+  check(container.querySelector('.xcb-lookin-popup') === null, 'a click on the backdrop dismisses the history')
 
   // A dump stops the app, so the panel asks the host to let it go again as soon as the tree is in
   // hand: a frozen phone is a side effect of debugging, not something the user asked for.
@@ -2808,6 +2905,15 @@ section('the LLDB drawer')
   equal(sent[0].body.command, 'po 1 + 1', 'and sends exactly what was typed')
   check(container.querySelector('.xcb-lldb-log') !== null, 'the transcript is what the drawer shows after a command')
 
+  // Detaching unmounts: the reading buttons go, and Apps comes back to pick the next one.
+  await act(async () => {
+    propsOf(buttonNamed(container, 'Detach')).onClick()
+    await new Promise((resolve) => setTimeout(resolve, 80))
+  })
+  check(buttonNamed(container, 'Apps') !== undefined, 'after a detach, Apps is offered again')
+  check(buttonNamed(container, 'View Hierarchy') === undefined && buttonNamed(container, 'Lookin') === undefined,
+    'and View Hierarchy and Lookin are gone with the app')
+
   // A refused dump is the drawer's business, not the build panel's.
   const refusing = serve({
     state: () => ({ workspace: '/tmp', activeRunId: null, runs: [] }),
@@ -2848,14 +2954,21 @@ section('the LLDB drawer')
   check(refusing.some((call) => call.method === 'lldb'), 'the failed attempt did reach the route')
 
   // A dump that failed because the run still holds the app offers to take it over.
+  let heldMounted = false
   const held = serve({
     state: () => ({ workspace: '/tmp', activeRunId: null, runs: [] }),
     doctor: () => ({ tools: [], missingRequired: [] }),
     detect: (body) => ({ kind: 'workspace', root: '/tmp', location: body.path, name: 'P', schemes: [], configurations: [], sweetpadDefaults: {} }),
     destinations: () => ({ destinations: [] }),
-    lldb: (body) => (body.op === 'view' && body.mode === 'launch'
-      ? TREE
-      : { ok: false, note: 'attached but the process never stopped', session: null }),
+    lldb: (body) => {
+      if (body.op === 'processes') return { ok: true, processes: APPS, note: '' }
+      if (body.op === 'attach') { heldMounted = true; return { ok: true, note: '', session: MOUNTED } }
+      if (body.op === 'view' && body.mode === 'launch') { heldMounted = true; return TREE }
+      if (body.op === 'view') { heldMounted = false; return { ok: false, note: 'attached but the process never stopped', session: null } }
+      return heldMounted
+        ? { active: true, session: MOUNTED, next: 1, firstAvailable: 1, lines: [] }
+        : { active: false, session: null, next: 0, firstAvailable: 1, lines: [] }
+    },
   })
   const fourth = mount({})
   const fourthOverlay = fourth.components.get('dsh-xcodebuild-panel')
@@ -2871,6 +2984,7 @@ section('the LLDB drawer')
   await act(async () => {
     fourthRender.container.querySelector('.xcb-lldb-toggle').dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
   })
+  await mountApp(fourthRender.container)
   const fourthView = Array.from(fourthRender.container.querySelectorAll('.xcb-btn')).find((node) => node.textContent === 'View Hierarchy')
   await act(async () => {
     propsOf(fourthView).onClick()
@@ -2891,20 +3005,27 @@ section('the LLDB drawer')
   // What the host really sends for 蜜语-Dev now that it listens to asynchronous errors: LLDB's own
   // words (`no such process`, debugserver E96) within seconds, and a relaunch as the remedy. It
   // used to send `refused: true` and an anti-debugging-guard story that the app did not deserve.
+  let guardedMounted = false
   serve({
     state: () => ({ workspace: '/tmp', activeRunId: null, runs: [] }),
     doctor: () => ({ tools: [], missingRequired: [] }),
     projects: () => ({ root: '/tmp', truncated: false, candidates: [] }),
     detect: (body) => ({ kind: 'workspace', root: '/tmp', location: body.path, name: 'P', schemes: [], configurations: [], sweetpadDefaults: {} }),
     destinations: () => ({ destinations: [] }),
-    lldb: (body) => (body.op === 'view'
-      ? {
+    lldb: (body) => (body.op === 'processes'
+      ? { ok: true, processes: APPS, note: '' }
+      : body.op === 'attach'
+      ? (guardedMounted = true, { ok: true, note: '', session: MOUNTED })
+      : body.op === 'view'
+      ? (guardedMounted = false, {
           ok: false,
           refused: false,
           note: "error: attach failed: no such process. The phone's debugserver would not take 蜜语-Dev's process even though it is running — the refusal comes from the device, and this plugin only relays it. Relaunching the app under the debugger (mode=launch) gives it a fresh process to attach to.",
           remedies: ['pass mode=launch to relaunch the app under the debugger'],
           session: null,
-        }
+        })
+      : guardedMounted
+      ? { active: true, session: MOUNTED, next: 1, firstAvailable: 1, lines: [] }
       : { active: false, session: null, next: 0, firstAvailable: 1, lines: [] }),
   })
   const guarded = mount({})
@@ -2920,6 +3041,7 @@ section('the LLDB drawer')
   await act(async () => {
     guardedRender.container.querySelector('.xcb-lldb-toggle').dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
   })
+  await mountApp(guardedRender.container)
   await act(async () => {
     propsOf(Array.from(guardedRender.container.querySelectorAll('.xcb-btn')).find((node) => node.textContent === 'View Hierarchy')).onClick()
     await new Promise((resolve) => setTimeout(resolve, 80))
