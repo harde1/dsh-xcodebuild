@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.4.3
+
+### Changed
+
+- **The debugger's own state probes no longer print in the LLDB transcript.**
+  - While an attach waits for the app to stop, the session asks LLDB on its own (`process interrupt`
+    every 3 s, `process status` every 4 s). Each probe and its answer went into the transcript, so a
+    failed attach filled it with `error: Process must be launched.` and buried what the user was
+    typing.
+  - Those probes are now quiet. Their lines still set the session state, and are still read when
+    judging whether the attach failed, but the transcript no longer shows them. The user's own
+    commands are unaffected.
+- **A state light in the drawer head** is where that state shows now:
+  - green: stopped, so expressions and View Hierarchy can run;
+  - yellow: running;
+  - yellow, blinking: attaching;
+  - red: the process is gone for the debugger, or the debugger ended;
+  - grey: no session.
+  - Hovering it says the state in words.
+
 ## 0.4.2
 
 ### Fixed

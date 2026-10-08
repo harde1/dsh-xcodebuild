@@ -2904,6 +2904,12 @@ section('the LLDB drawer')
   equal(sent.length, 1, 'Enter sends the command')
   equal(sent[0].body.command, 'po 1 + 1', 'and sends exactly what was typed')
   check(container.querySelector('.xcb-lldb-log') !== null, 'the transcript is what the drawer shows after a command')
+  {
+    const light = container.querySelector('.xcb-lldb-light')
+    check(light !== null, 'the drawer head carries a state light')
+    check(light !== null && /\b(green|yellow|red|off)\b/.test(light.className) && light.getAttribute('title') !== '',
+      'coloured by the session state, with the state in words on hover', light === null ? '(none)' : `${light.className} / ${light.getAttribute('title')}`)
+  }
 
   // The transcript reads like the build log: numbered, coloured by kind, following its tail.
   {

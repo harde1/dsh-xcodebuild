@@ -481,6 +481,29 @@ section('resume is fire-and-forget, so the interrupt that follows it is not stuc
   eq(session.state, 'stopped', 'and the process is stopped again')
 }
 
+section('the session\'s own state probes stay out of the transcript')
+{
+  // The probes an attach sends by itself (`process interrupt`, `process status`) used to print a
+  // column of `error: Process must be launched.` between the user's commands. They are quiet now:
+  // their lines still set the state, but `readLines` — the transcript — does not carry them.
+  const { session } = sessionWith((line, child) => {
+    if (line === 'process status') child.say('Process 77 stopped')
+    if (line === 'process interrupt') child.say('error: Process must be launched.')
+    if (line === 'po 1') child.say('1')
+  })
+  session.start()
+  await session.send('process interrupt', { quiet: true })
+  await session.send('process status', { quiet: true })
+  eq(session.state, 'stopped', 'a quiet probe\'s answer still moves the state light')
+  await session.send('po 1')
+  const transcript = session.readLines(0).map((line) => line.t)
+  check(transcript.every((text) => !/process (status|interrupt)|must be launched|Process 77/.test(text)),
+    'and none of the probes, nor their answers, reach the transcript', transcript.join(' | '))
+  check(transcript.includes('(lldb) po 1') && transcript.includes('1'), 'while the user\'s own command and its answer do')
+  const said = await session.send('process interrupt', { quiet: true })
+  eq(said.lines, ['error: Process must be launched.'], 'and the caller of a quiet command still gets its answer')
+}
+
 section('dispose ends the child')
 {
   const { child: scripted, session } = sessionWith(() => {})
