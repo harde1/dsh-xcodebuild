@@ -1039,6 +1039,53 @@ section('clear empties the output log, not the filter')
     'the filter query carries the clear baseline to the host')
 }
 
+section('the run log has the same right-click menu as the debugger transcript')
+{
+  serve({
+    state: () => ({ workspace: '/tmp', activeRunId: 'run-1', runs: [] }),
+    poll: (body) => ({
+      missing: false,
+      lines: [{ n: body.from, k: 'plain', t: `line ${body.from}` }],
+      next: body.from + 1,
+      status: 'running',
+      exitCode: null,
+      warningCount: 0,
+      errors: [],
+      durationMs: 0,
+    }),
+    detect: (body) => ({ kind: 'workspace', root: '/tmp', location: body.path, name: 'P', schemes: [], configurations: [], sweetpadDefaults: {} }),
+    destinations: () => ({ destinations: [] }),
+  })
+  const instance = mount({})
+  const overlay = instance.components.get('dsh-xcodebuild-panel')
+  const toggle = instance.components.get('dsh-xcodebuild-toggle')
+  const { container } = await render([
+    React.createElement(overlay.component, { key: 'overlay' }),
+    React.createElement(toggle.component, { key: 'toggle', sessionId: 'sess-runmenu' }),
+  ])
+  await act(async () => {
+    container.querySelector('.xcb-trigger').dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+  })
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 700)) })
+  const log = container.querySelector('.xcb-log')
+  check(log !== null && container.querySelectorAll('.xcb-line').length > 0, 'the run log has lines to begin with')
+  await act(async () => { propsOf(log).onContextMenu({ preventDefault() {}, clientX: 50, clientY: 60, currentTarget: log }) })
+  const menu = container.querySelector('.xcb-log-ctxmenu')
+  check(menu !== null && menu.className.includes('xcb-ctxmenu'), 'a right-click opens the shared menu, fixed above the panel')
+  equal(Array.from(menu?.querySelectorAll('.xcb-ctxmenu-item') ?? []).map((item) => item.firstChild.textContent),
+    ['Select All', 'Copy', 'Clear'], 'with the same three entries')
+  equal([menu?.style.left, menu?.style.top], ['50px', '60px'], 'at the pointer')
+  const lastBefore = Math.max(...Array.from(container.querySelectorAll('.xcb-line .xcb-num')).map((node) => Number(node.textContent)))
+  await act(async () => { propsOf(Array.from(menu.querySelectorAll('.xcb-ctxmenu-item')).find((item) => item.textContent === 'Clear')).onClick() })
+  equal(container.querySelectorAll('.xcb-line').length, 0, 'Clear empties the run log, as the toolbar Clear does')
+  check(container.querySelector('.xcb-log-ctxmenu') === null, 'and the menu closes')
+  // The baseline moved with it: what arrives next is new, the cleared lines do not return.
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 700)) })
+  const numbers = Array.from(container.querySelectorAll('.xcb-line .xcb-num')).map((node) => Number(node.textContent))
+  check(numbers.length > 0 && numbers.every((n) => n > lastBefore),
+    'new lines still arrive after it, and the cleared ones stay gone', `${numbers.join(',')} after ${String(lastBefore)}`)
+}
+
 // =========================================================================
 // The level buttons must reach every kind the classifier can produce.
 // =========================================================================

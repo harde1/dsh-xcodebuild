@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.4.7
+
+### Added
+
+- **The run log (build output and app log) has the same right-click menu as the LLDB transcript:
+  Select All, Copy, Clear.**
+  - Clear there is the toolbar's Clear. It drops the lines and moves the baseline, so neither the next
+    poll nor a filter brings them back.
+  - Both logs now share one menu, a fixed layer at the pointer that flips at the window's edge, so
+    they cannot drift apart.
+
 ## 0.4.6
 
 ### Fixed
