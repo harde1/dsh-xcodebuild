@@ -2922,6 +2922,14 @@ section('the LLDB drawer')
     await act(async () => { propsOf(log).onScroll({ currentTarget: log }) })
     const jump = container.querySelector('.xcb-lldb-jump')
     check(jump !== null, 'scrolled up, the transcript stops following and offers the way back')
+    check(jump !== null && jump.className.includes('xcb-jump'),
+      'as the build log\'s floating button, not a button of its own', jump === null ? '(none)' : jump.className)
+    // Floating means a sibling of the scroller, inside a positioned wrapper: inside the scroller it
+    // would scroll away with the lines it is meant to sit over.
+    check(jump !== null && jump.parentElement === log.parentElement && jump.parentElement.className.includes('xcb-lldb-logwrap'),
+      'and it floats over the transcript rather than scrolling inside it')
+    check(log.closest('.xcb-lldb-body')?.className.includes(' log') === true,
+      'on the log tab the body hands scrolling to the transcript, so the transcript is what scrolls')
     equal(jump?.textContent, '↓ Latest', 'which says it goes to the latest output')
     await act(async () => { propsOf(jump).onClick() })
     equal(log.scrollTop, 1000, 'clicking it scrolls to the newest line')

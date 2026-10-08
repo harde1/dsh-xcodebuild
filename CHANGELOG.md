@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.4.2
+
+### Fixed
+
+- **The LLDB transcript's `↓ Latest` button floats over the lines, like the build log's.**
+  - On the log tab the drawer body was the scroller. The transcript therefore grew to its content's
+    height and never scrolled itself, so its scroll handler never ran, following was never switched
+    off, and the button never appeared. Had it appeared, it sat inside the scrolled content and would
+    have scrolled away with the lines.
+  - On the log tab the body now holds the transcript to the visible height. The transcript scrolls
+    itself, and the button is a sibling of it in a positioned wrapper: the same pill as the build log's
+    (blur, fade, `↓ N new`), tucked into the corner.
+
 ## 0.4.1
 
 ### Changed
