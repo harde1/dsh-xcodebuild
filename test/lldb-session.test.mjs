@@ -250,7 +250,8 @@ section('attaching to a device waits for the stop that expressions need')
   })
   session.start()
   const result = await session.attach({ kind: 'device', id: '00008110-ABC', pid: 77 }, { timeoutMs: 5000, probeAfterMs: 100, probeEveryMs: 100 })
-  const commands = child.written.filter((line) => !line.startsWith('script print('))
+  eq(child.written[0], 'script lldb.debugger.SetAsync(True)', 'the interpreter is made asynchronous before anything else')
+  const commands = child.written.filter((line) => !line.startsWith('script '))
   eq(commands[0], 'device select 00008110-ABC', 'the device is selected first')
   eq(commands[1], 'device process attach -p 77', 'then attached by pid')
   eq(result.ok, true, 'the attach succeeds once the process has stopped')
@@ -549,6 +550,49 @@ section('a SIGKILL stop is the app being killed, not a stop to read from')
   check(/SIGKILL/.test(session.summary().detail), 'the reason is said', session.summary().detail)
   const evaluated = await session.evaluate('po 1')
   eq(evaluated.ok, false, 'so no expression is sent into a process being torn down')
+}
+
+section('a read in a running app is one short stop: interrupt, work, continue')
+{
+  const { session, child } = sessionWith((line, c) => {
+    if (line === 'process interrupt') setTimeout(() => c.say('Process 3 stopped'), 30)
+    if (line === 'continue') c.say('Process 3 resuming')
+    if (line === 'po 1') c.say('1')
+  })
+  session.start()
+  await session.send('process status')
+  child.say('Process 3 is running.')
+  await sleep(10)
+  const out = await session.pauseFor(() => session.evaluate('po 1'))
+  eq(out.ok, true, 'the work ran', out.note)
+  eq(out.value.text, '1', 'and its answer is handed back')
+  eq(out.resumed, true, 'the app is let go at once')
+  await sleep(20)
+  eq(session.state, 'running', 'and is running again')
+  const order = child.written.filter((line) => ['process interrupt', 'po 1', 'continue'].includes(line))
+  eq(order.join(' > '), 'process interrupt > po 1 > continue', 'in that order, nothing else in between')
+  check(out.pausedMs < 1000, 'and the pause is measured', String(out.pausedMs))
+
+  // A stop that someone else made (a breakpoint, a manual Interrupt) is not ours to end.
+  child.say('Process 3 stopped')
+  await sleep(10)
+  const before = child.written.filter((line) => line === 'continue').length
+  const kept = await session.pauseFor(() => session.evaluate('po 1'))
+  eq(kept.ok, true, 'a stopped app is read as it is')
+  eq(kept.resumed, false, 'and left stopped')
+  eq(child.written.filter((line) => line === 'continue').length, before, 'no continue is sent')
+}
+
+section('the expression engine is warmed inside the attach\'s own stop')
+{
+  const { session, child } = sessionWith((line, c) => {
+    if (line.startsWith('process attach')) c.say('Process 8 stopped')
+  })
+  session.start()
+  await session.attach({ kind: 'simulator', pid: 8, mode: 'attach' }, { timeoutMs: 2000 })
+  check(child.written.some((line) => line.startsWith('expression -l objc -- (void)[UIApplication sharedApplication]')),
+    'one ObjC expression runs while the app is stopped anyway, so the first read does not pay for it')
+  check(!session.readLines(0).some((line) => line.t.includes('UIApplication sharedApplication')), 'and it stays out of the transcript')
 }
 
 section('polling with the summary\'s cursor never returns a line twice')

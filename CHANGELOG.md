@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.5.0
+
+### Changed
+
+- **The app keeps running under the debugger, and each read or expression takes the shortest stop
+  it can.** Measured with the plugin's own session on the iPhone 17 simulator:
+
+  | | before | now |
+  |---|---|---|
+  | `po` while the app runs | refused, or the app held until Continue | 220–300 ms pause, then running again |
+  | View Hierarchy (96 views) | app frozen from the read until Continue | 220–310 ms pause, then running again |
+  | `process status`, `breakpoint list` while running | queued behind `continue` | 0–2 ms, no pause |
+
+- **The interpreter runs asynchronously** (`SetAsync(True)` before anything else). In synchronous
+  mode `continue` does not return until the app stops again, so every later command waited behind a
+  running app. Asynchronous, `process interrupt` stops it in about 110 ms.
+- **`pauseFor(work)` is the one way to read a running app.** It interrupts, runs `work`, and
+  continues.
+  - The quick View Hierarchy reads the tree and the class/screen facts inside one stop.
+  - The full Lookin export holds one stop for its whole render.
+  - A drawer command that needs a stopped process (`po`, `p`, `expr`, `call`, `v`, `frame`, `bt`,
+    `thread backtrace`, `x`, `memory read`, `register`) uses it too. Anything else is sent as it is.
+  - An app that was already stopped (a breakpoint, a manual Interrupt) is read as it is and left
+    stopped.
+- **Reusing an attached session no longer stops the app.** Only the read that needs a stop takes one.
+- **The expression engine is warmed inside the attach's own stop.** The first ObjC expression of a
+  session parses the runtime's types: cold, it held the app 873–2404 ms; warm, 6–80 ms.
+
 ## 0.4.13
 
 ### Fixed
