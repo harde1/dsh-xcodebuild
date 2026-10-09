@@ -3277,7 +3277,9 @@ section('a Build & Run mounts the app it launched')
   await act(async () => { await new Promise((resolve) => setTimeout(resolve, 80)) })
   // Panels mounted by earlier sections are still alive and share this fake host, so each of them
   // may attach once too; what matters is that it happens now, and never again once mounted.
-  const mine = (call) => call.method === 'lldb' && call.body.op === 'attach'
+  // Counted by this section's own app, so a panel left from an earlier section attaching late
+  // cannot make the "only once" check flaky.
+  const mine = (call) => call.method === 'lldb' && call.body.op === 'attach' && call.body.appPath === '/tmp/Build/HIDProbe.app'
   const autoAttach = calls.filter(mine)
   check(autoAttach.length >= 1, 'opening the drawer attaches to the launched app at once, not on the first read')
   equal(autoAttach[0]?.body.process, 'HIDProbe', 'by the process the run launched')

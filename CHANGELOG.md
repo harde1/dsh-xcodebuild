@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.4.10
+
+### Fixed
+
+- **A device attach that was about to succeed is no longer cut off at 30 s.** Measured on 蜜语-Dev
+  (iPhone 13, iOS 26.6.2):
+  - `device process attach` returns in 1 s.
+  - From then on, `process status` answers `Process N is running.` with
+    `thread #1, stop reason = signal SIGSTOP`. The kernel has already paused the app while lldb loads
+    its images.
+  - The real `Process N stopped` / `Target 0: (蜜语-Dev) stopped.` arrives 15–23 s after the attach.
+    `process interrupt` answers `Process must be launched.` the whole time. That is lldb's state, not a
+    stale one in the plugin.
+- **The state is probed from the first second, every 3 s, instead of from the eighth.**
+  - Back to back on the same pid: probing from 8 s timed out at 30 s having heard nothing but
+    `Process must be launched.`, while probing from the start stopped at 15–23 s.
+  - Without those early answers, the stop was not noticed in time.
+- **Seeing a SIGSTOPped thread extends the wait to 90 s.**
+  - An attach that is visibly finishing gets time to finish.
+  - One that shows no such sign still gives up at 30 s.
+
 ## 0.4.9
 
 ### Changed

@@ -293,6 +293,33 @@ section('an attach that times out says whether LLDB said anything')
   check(failed.note.includes('unable to attach'), 'with LLDB\'s own reason, not a timeout', failed.note)
 }
 
+section('an attach that is visibly finishing is given the time to finish')
+{
+  // Measured on a real device: `Process N is running.` with `thread #1, stop reason = signal SIGSTOP`
+  // for ~20 s, then the real stop. A flat budget cut that off; seeing SIGSTOP extends it.
+  const startedAt = Date.now()
+  const { session, child } = sessionWith((line, c) => {
+    if (line === 'process status' && Date.now() - startedAt < 700) {
+      c.say('Process 9 is running.')
+      c.say('* thread #1, stop reason = signal SIGSTOP')
+    }
+  })
+  session.start()
+  setTimeout(() => { child.say('Process 9 stopped'); child.say('Target 0: (App) stopped.') }, 700)
+  const done = await session.attach({ kind: 'device', id: 'u', pid: 9, mode: 'attach' },
+    { timeoutMs: 300, probeAfterMs: 0, probeEveryMs: 100, progressTimeoutMs: 3000 })
+  eq(done.ok, true, 'a SIGSTOPped thread keeps the wait alive past the short budget, until the stop', done.note)
+  eq(session.state, 'stopped', 'and the session is stopped')
+
+  const { session: stuck } = sessionWith((line, c) => {
+    if (line === 'process status') c.say('Process 9 is running.')
+  })
+  stuck.start()
+  const gave = await stuck.attach({ kind: 'device', id: 'u', pid: 9, mode: 'attach' },
+    { timeoutMs: 300, probeAfterMs: 0, probeEveryMs: 100, progressTimeoutMs: 3000 })
+  eq(gave.ok, false, 'without that sign the short budget still applies')
+}
+
 section('a session that goes away detaches first, so it does not wedge the device')
 {
   // Quitting while attached leaves the phone believing a debugger still holds the process: the next
