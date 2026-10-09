@@ -508,6 +508,26 @@ section('resume is fire-and-forget, so the interrupt that follows it is not stuc
   eq(session.state, 'stopped', 'and the process is stopped again')
 }
 
+section('polling with the summary\'s cursor never returns a line twice')
+{
+  // The drawer polls `readLines(next)` and stores the answer's `next`. With `lineCount` as the cursor
+  // the newest line came back on every poll — `device select` and `Process N resuming` were shown
+  // two and three times on a real device.
+  const { session } = sessionWith((line, child) => { if (line === 'po 1') child.say('1') })
+  session.start()
+  await session.send('po 1')
+  const shown = []
+  let cursor = 0
+  for (let poll = 0; poll < 3; poll += 1) {
+    for (const line of session.readLines(cursor)) shown.push(line.n)
+    cursor = session.summary().next
+  }
+  eq(shown.length, new Set(shown).size, 'three polls with no new output repeat nothing', shown.join(','))
+  await session.send('po 1')
+  const fresh = session.readLines(cursor)
+  check(fresh.length > 0 && fresh.every((line) => line.n >= cursor), 'and the next poll gets exactly the new lines')
+}
+
 section('the session\'s own state probes stay out of the transcript')
 {
   // The probes an attach sends by itself (`process interrupt`, `process status`) used to print a

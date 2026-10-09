@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.4.11
+
+### Fixed
+
+- **The LLDB drawer no longer shows the same line two or three times.**
+  - The cause: the host answered each poll with `lineCount` as the cursor, and `readLines(from)`
+    includes line `from`, so every poll returned the newest line again.
+  - As a result, `device select`, `device process attach` and `Process N resuming` appeared once per
+    poll until the next line arrived.
+  - The cursor is now the session's own `summary().next`, one past the last line. A test fails if
+    polling ever repeats a line.
+
 ## 0.4.10
 
 ### Fixed
