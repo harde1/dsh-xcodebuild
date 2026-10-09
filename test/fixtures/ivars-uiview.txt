@@ -1,0 +1,248 @@
+<UIView: 0x10541dd30>:
+in UIView:
+	_constraintsExceptingSubviewAutoresizingConstraints (NSMutableArray*): nil
+	_cachedTraitCollection (UITraitCollection*): <UITraitCollection: 0x10520ae30>
+	_swiftAnimationInfo (id): nil
+	_traitChangeRegistry (_UITraitChangeRegistry*): <_UITraitChangeRegistry: 0x60000170fd00>
+	_layerRetained (CALayer*): nil
+	_subviewCache (NSArray*): nil
+	_window (UIWindow*): <UIWindow: 0x10510e330>
+	_gestureRecognizers (NSArray*): nil
+	_viewDelegate (UIViewController*): nil
+	_viewFlags (struct ?): {
+		userInteractionDisabled (b1): NO
+		implementsDrawRect (b1): NO
+		implementsDidScroll (b1): NO
+		implementsMouseTracking (b1): NO
+		implementsIntrinsicContentSize (b1): NO
+		hasBackgroundColor (b1): NO
+		hasBackgroundColorSystemColorName (b1): YES
+		hasInteractionTintColor (b1): NO
+		hasOverrideTintColor (b1): NO
+		isOpaque (b1): YES
+		becomeFirstResponderWhenCapable (b1): NO
+		isDeallocInitiated (b1): NO
+		isInUIViewDealloc (b1): NO
+		hasPreparedForWindowDealloc (b1): NO
+		isFirstResponder (b1): NO
+		isAncestorOfFirstResponder (b1): NO
+		dontAutoresizeSubviews (b1): NO
+		autoresizeMask (b6): 0
+		patternBackground (b1): NO
+		fixedBackgroundPattern (b1): NO
+		dontAnimate (b1): NO
+		superLayerIsView (b1): YES
+		layerKitPatternDrawing (b1): NO
+		multipleTouchEnabled (b1): NO
+		exclusiveTouch (b1): NO
+		hasViewController (b1): NO
+		needsDidAppearOrDisappear (b1): NO
+		deliversTouchesForGesturesToSuperview (b1): YES
+		deliversPressesForGesturesToSuperview (b1): YES
+		chargeEnabled (b1): NO
+		skipsSubviewEnumeration (b1): NO
+		needsDisplayOnBoundsChange (b1): NO
+		hasTiledLayer (b1): NO
+		hasContentSizeCategoryLimits (b1): NO
+		traversalMark (b1): NO
+		appearanceIsInvalid (b1): NO
+		monitorsSubtree (b1): NO
+		hostsAutolayoutEngine (b1): NO
+		constraintsAreClean (b1): NO
+		subviewLayoutConstraintsAreClean (b1): NO
+		intrinsicContentSizeConstraintsAreClean (b1): NO
+		strictDescendantNeedsDoubleUpdateConstraints (b1): NO
+		strictDescendantNeedsDoubleUpdateConstraintsIsInvalid (b1): NO
+		hasStoredLayoutEngineWidth (b1): NO
+		determiningWidthForDoubleUpdateConstraints (b1): NO
+		inSecondConstraintsPass (b1): NO
+		potentiallyHasDanglyConstraints (b1): NO
+		doesNotTranslateAutoresizingMaskIntoConstraints (b1): NO
+		autolayoutIsClean (b1): NO
+		autolayoutBoundsAreClean (b1): NO
+		layoutFlushingDisabled (b1): NO
+		layingOutFromConstraints (b1): NO
+		wantsAutolayout (b1): NO
+		subviewWantsAutolayout (b1): NO
+		isApplyingValuesFromEngine (b1): NO
+		autolayoutIsSendingSetBoundsWithNoChanges (b1): NO
+		isResizingDueToParentResize (b1): NO
+		isInLayoutSubviewsOrVCCallback (b1): NO
+		isInUpdateProperties (b1): NO
+		isInAnimatedLayout (b1): NO
+		isSubviewUpdatingAutoresizingConstraints (b1): NO
+		isUpdatingConstraints (b1): NO
+		isReapplyingStillActiveBrokenConstraints (b1): NO
+		isSuppressingUnsatisfiableConstraintsLoggingForNestedLayoutEngines (b1): NO
+		isHostingUpdateConstraintsPassDuringLayout (b1): NO
+		isRunningEngineLevelConstraintsPass (b1): NO
+		isUpdatingLayoutEngineHostConstraints (b1): NO
+		isExpectingToFlushPendingLayoutChangeNotifications (b1): NO
+		invalidatesIntrinsicContentSizeForSubviewAutoLayoutChanges (b1): NO
+		systemLayoutFittingSizeNeedsUpdate (b1): NO
+		systemLayoutFittingSizeNeedsUpdateInWholeSubtree (b1): NO
+		isCalculatingSystemLayoutFittingSize (b1): NO
+		suppressEncapsulationConstraints (b1): NO
+		suppressAutoresizingMaskConstraintsUpdate (b1): NO
+		isFetchingSizeForTAMIC_NOEngineHost (b1): NO
+		internallyHiddenForReason (b2): 0
+		stayHiddenAfterBeingInternallyHiddenForReason (b1): NO
+		skippedPreLayoutWhileInternallyHiddenForReason (b1): NO
+		skippedLayoutWhileInternallyHiddenForReason (b1): NO
+		isPendingHiddenForAnimation (b1): NO
+		hasMaskView (b1): NO
+		isSettingMaskView (b1): NO
+		hasVisualAltitude (b1): NO
+		hasBackdropMaskViews (b1): NO
+		backdropMaskViewFlags (b5): 0
+		delaysTouchesForSystemGestures (b1): NO
+		subclassShouldDelayTouchForSystemGestures (b1): NO
+		hasMotionEffects (b1): NO
+		backdropOverlayMode (b2): 0
+		tintAdjustmentMode (b2): 0
+		isReferenceView (b1): NO
+		focusState (b2): 0
+		hasUserInterfaceIdiom (b1): YES
+		userInterfaceIdiom (b3): 0
+		ancestorDefinesTintColor (b1): NO
+		ancestorDefinesTintAdjustmentMode (b1): NO
+		ancestorIgnoresInvertColors (b1): NO
+		needsUpdateProperties (b1): NO
+		needsTraitCollectionDidChangePropagation (b1): NO
+		isRootOfTraitCollectionDidChangePropagation (b1): NO
+		implementsTraitCollectionForChildEnvironment (b1): NO
+		implementsBaselineOffsetsAtSize (b1): NO
+		coloredViewBounds (b1): NO
+		coloredAlignmentRects (b1): NO
+		preservesSuperviewMargins (b4): 0
+		insettingLayoutMarginsFromSafeArea (b4): 15
+		safeAreaInsetsFrozen (b1): NO
+		viewDelegateContentOverlayInsetsAreClean (b1): NO
+		hasGeometryObservers (b1): NO
+		notifyObserversForBaselineChanges (b1): NO
+		notifySuperviewForBaselineChanges (b1): NO
+		observingGeometryChangesForSelfCount (b4): 0
+		isObservingBoundingPathRotationNotificationsForWindow (b1): NO
+		hasTraitStorageList (b1): NO
+		cachedTraitCollectionIsValid (b1): YES
+		hasTraitOverrides (b1): YES
+		dontUpdateInferredLayoutMargins (b1): NO
+		areLayoutMarginsDirectional (b1): NO
+		implementsViewForBaselineLayout (b1): NO
+		tracksFocusedAncestors (b1): NO
+		hasLayoutArrangements (b1): NO
+		isHiddenManagedByLayoutArrangement (b1): NO
+		hasAddedFocusGuides (b1): NO
+		hasFocusSpeedBumpEdges (b1): NO
+		hasFocusableContentMargins (b1): NO
+		focusInteractionDisabled (b1): NO
+		shouldReverseLayoutDirection (b1): NO
+		cannotBeParentTraitEnvironment (b1): NO
+		needsContentsFormatUpdate (b1): YES
+		accessibilityIgnoresInvertColors (b1): NO
+		ignoresLayerTransformForSafeAreaInsets (b1): NO
+		accessibilityInterfaceStyleIntent (b2): 0
+		accessibilityResolvedInterfaceStyle (b2): 0
+		shouldArchiveUIAppearanceTags (b1): NO
+		wantsDeepColorDrawing (b1): YES
+		preferredContentsFormat (b3): 0
+		sceneDraggingBehaviorOnPan (b2): 0
+		tagEnabled (b1): NO
+		chargeSet (b1): NO
+		ignoreBackdropViewsWhenHiding (b1): NO
+		hasInteractionsArray (b1): NO
+		hasHitTestDirectionalInsets (b1): NO
+		hasLayoutDebuggingIdentifier (b1): NO
+		hasAppIntentsIntelligenceProvider (b1): NO
+		hasContentSizeNotificationToken (b1): NO
+		hasPresentationControllerToNotifyOnLayoutSubviews (b1): NO
+		hasWritingToolsCoordinator (b1): NO
+		semanticContentAttribute (b3): 0
+		hasDynamicBackgroundColor (b1): YES
+		forceEffectiveThemeDidChange (b1): NO
+		allowsHighContrastForBackgroundColor (b1): NO
+		hasPendingTraitStorageConstraints (b1): NO
+		hasPendingLayoutAfterTraitStorageConstraintsUpdate (b1): NO
+		hasEverBeenInAWindow (b1): YES
+		hasFocusGroupIdentifier (b2): 0
+		hasFocusGroupPriority (b1): NO
+		hasFocusEffect (b2): 0
+		conformsToUIFocusItemScrollableContainer (b2): 0
+		allowsSkippingLayout (b1): YES
+		isResolvingTraitCollection (b1): NO
+		needsLayoutAndDisplayOnTintColorChanges (b1): NO
+		subviewNeedsAnimationRestorationMessage (b1): NO
+		isHostingTrackingForAnimationRestoration (b1): NO
+		implementsFocusItemsInRect (b1): NO
+		isPrivateSubview (b1): NO
+		wasPrivateSubview (b1): NO
+		shouldAdaptToMaterials (b1): YES
+		hasMultiLayerDelegate (b1): NO
+		useMinimumSafeArea (b1): NO
+		useMinimumSafeAreaFrozen (b1): NO
+		minimumSafeAreaAccessed (b1): NO
+		minimumSafeAreaIsClassicSafeArea (b1): NO
+		minimumSafeAreaNeedsUpdate (b1): NO
+		mt_hasCustomizedCaptureGroup (b1): NO
+		mt_backgroundMergeBehavior (b2): 0
+		shouldContinueRemovingFromSuperview (b1): NO
+		isMaskingIntermediateLayer (b1): NO
+		hasLayoutRules (b1): NO
+		maskingConfigurationIsInvalid (b1): NO
+		needsCornersUpdate (b1): NO
+		invalidatesCornersForGeometryChange (b1): NO
+		suppressesBackground (b1): NO
+		glassBackgroundNeedsUpdate (b1): NO
+		hasChildrenRequestingSubduing (b1): NO
+		safeAreaCornerAdaptation (b3): 0
+		isRenderedHorizontallyFlipped (b1): NO
+	}
+	_unsatisfiableConstraintsLoggingSuspensionCount (unsigned short): Value not representable, S
+	_minimumSafeAreaInsets (struct UIEdgeInsets): {0, 0, 0, 0}
+	_clippedSafeAreaCornerInsets (union ?): (values are interpreted) (
+		cornerInsets (struct ?): unknown
+		packedInsets (unsigned long): 0
+	)
+	_layer (CALayer*): <CALayer: 0x600000c22b20>
+	_viewBackingAux (_UIViewBackingAux*): nil
+	_minXVariable (NSISVariable*): nil
+	_minYVariable (NSISVariable*): nil
+	_boundsWidthVariable (NSISVariable*): nil
+	_boundsHeightVariable (NSISVariable*): nil
+	_tintAdjustmentDimmingCount (unsigned short): Value not representable, S
+	_layoutSubviewsCount (unsigned short): Value not representable, S
+	_imminentLayoutSubviewsCount (unsigned short): Value not representable, S
+	_countOfFocusedAncestorTrackingViewsInSubtree (unsigned short): Value not representable, S
+	__isEffectivelyHidden (BOOL): NO
+	_layoutMarginsGuide (UILayoutGuide*): nil
+	_typedStorage (_UITypedStorage*): <_UITypedStorage: 0x600000004e40>
+	_layoutEngine (NSISEngine*): nil
+	_stashedLayoutVariableObservations (NSMapTable*): nil
+	_internalConstraints (NSMutableArray*): nil
+	_safeAreaLayoutGuide (UILayoutGuide*): nil
+	_keyboardLayoutGuide (UIKeyboardLayoutGuide*): nil
+	_readableContentGuide (UILayoutGuide*): nil
+	__lastNotifiedTraitCollection (UITraitCollection*): <UITraitCollection: 0x10520ae30>
+	__autoresizingMaskForPreviousAutoresizingLayoutConstraints (unsigned long): 0
+	__alignmentRectOriginCache (_UIViewLayoutEngineRelativeAlignmentRectOriginCache*): nil
+	_rawLayoutMargins (struct UIEdgeInsets): {-1.7976931348623157e+308, -1.7976931348623157e+308, -1.7976931348623157e+308, -1.7976931348623157e+308}
+	_inferredLayoutMargins (struct UIEdgeInsets): {8, 8, 8, 8}
+	_safeAreaInsets (struct UIEdgeInsets): {0, 0, 0, 0}
+in UIResponder:
+	_responderFlags (struct ?): {
+		hasOverrideClient (b1): NO
+		hasOverrideHost (b1): NO
+		hasInputAssistantItem (b1): NO
+		hasUserActivity (b1): NO
+		hasPasteConfiguration (b1): NO
+		hasStoredActivityItemsConfiguration (b1): NO
+		suppressSoftwareKeyboard (b1): NO
+		conformsToUIKeyInputIsSet (b1): NO
+		conformsToUIKeyInput (b1): NO
+		conformsToUIAsyncTextInputClient (b1): NO
+		conformsToUIAsyncTextInputClientIsSet (b1): NO
+		conformsToBETextInput (b1): NO
+		conformsToBETextInputIsSet (b1): NO
+	}
+in NSObject:
+	isa (Class): UIView (isa, 0x3000001f2bfd34f)

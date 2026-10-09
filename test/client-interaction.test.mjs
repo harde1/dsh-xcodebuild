@@ -2677,6 +2677,11 @@ section('the LLDB drawer')
   }
   let sessionActive = false
   let fullJob = null
+  // What the inspector asked for, and the edits it sent: the ops are the whole contract between the
+  // panel and the app, so the tests read them the way the host would.
+  const attributeReads = []
+  const edits = []
+  let editSticks = true
   let history = [
     { name: 'lookin-2026-10-08T10-30-05-full.lookin', kind: 'full', app: '蜜语-Dev', views: 412, images: 398, created: '2026-10-08T10:30:05.000Z', bytes: 3 * 1024 * 1024 },
     { name: 'lookin-2026-10-08T09-00-00-quick.lookin', kind: 'quick', app: '蜜语-Dev', views: 410, images: 0, created: '2026-10-08T09:00:00.000Z', bytes: 90 * 1024 },
@@ -2722,6 +2727,74 @@ section('the LLDB drawer')
           color: { css: 'rgba(255, 0, 0, 0.5)', name: '', raw: '<UIDeviceRGBColor: 0x1; red = 1; green = 0; blue = 0; alpha = 0.5>' },
           rows: [{ label: 'Class', value: 'Example.StatusLight' }, { label: 'Frame', value: '0, 0  116.667×44' }],
           note: '',
+        }
+      }
+      if (body.op === 'attributes') {
+        attributeReads.push({ address: body.address, refresh: body.refresh === true })
+        return {
+          ok: true,
+          address: body.address,
+          className: 'UILabel',
+          attributes: 5,
+          note: '',
+          session: sessionAt(sessionState),
+          groups: [
+            {
+              name: 'UILabel',
+              rows: [
+                { name: '_text', type: 'NSString*', value: '"row 0"', depth: 0, edit: { kind: 'text', value: 'row 0', key: 'text' } },
+                { name: '_numberOfLines', type: 'long', value: '1', depth: 0, edit: { kind: 'number', value: 1, key: 'numberOfLines' } },
+              ],
+            },
+            {
+              name: 'UIView',
+              rows: [
+                { name: '_backgroundColor', type: 'UIColor*', value: '<UIDeviceRGBColor: 0x1; red = 1; green = 0.5; blue = 0; alpha = 1>', depth: 0, edit: { kind: 'color', value: '#ff8000ff', key: 'backgroundColor' } },
+                { name: '_viewFlags', type: 'struct ?', value: '{', depth: 0, edit: { kind: 'none', value: null } },
+                { name: 'bounds', type: 'struct CGRect', value: '{{0, 0}, {200, 20}}', depth: 1, edit: { kind: 'none', value: null } },
+              ],
+            },
+          ],
+        }
+      }
+      if (body.op === 'constraints') {
+        return {
+          ok: true,
+          address: body.address,
+          note: '',
+          session: sessionAt(sessionState),
+          layout: {
+            masked: false,
+            ambiguous: true,
+            intrinsic: { width: 42.66666666666666, height: 20.33333333333333 },
+            hugging: [250, 250],
+            resistance: [750, 750],
+            own: ['<NSLayoutConstraint:0x6000001 UILabel:0x2.width == 200   (active)>'],
+            referencing: ['<NSLayoutConstraint:0x6000002 H:|-(12)-[UILabel:0x2]   (active)>'],
+          },
+        }
+      }
+      if (body.op === 'edit') {
+        edits.push(body)
+        // A setter that does not stick — the case a debugger has to own up to, because the app
+        // writes the value back in its own layout pass.
+        const kept = editSticks ? body.value : 1
+        return {
+          ok: true,
+          address: body.address,
+          key: body.key,
+          value: typeof kept === 'number' ? String(kept) : JSON.stringify(kept),
+          note: '',
+          session: sessionAt(sessionState),
+          groups: [
+            {
+              name: 'UILabel',
+              rows: [
+                { name: '_text', type: 'NSString*', value: '"row 0"', depth: 0, edit: { kind: 'text', value: 'row 0', key: 'text' } },
+                { name: '_numberOfLines', type: 'long', value: String(typeof kept === 'number' ? kept : 1), depth: 0, edit: { kind: 'number', value: Number(kept), key: 'numberOfLines' } },
+              ],
+            },
+          ],
         }
       }
       if (body.op === 'continue') { sessionState = 'running'; return { ok: true, note: 'the app is running again, still attached', session: sessionAt('running') } }
@@ -2786,8 +2859,16 @@ section('the LLDB drawer')
   check(container.textContent.includes('● GC 键盘'), 'a label speaks for itself in the tree')
   check(container.textContent.includes('axis=vert'),
     'and a stack view says how it is laid out, which is usually why a screen looks wrong')
-  const hiddenRow = Array.from(container.querySelectorAll('.xcb-lldb-row')).find((node) => node.className.includes('hidden'))
-  check(hiddenRow !== undefined, 'a hidden view is marked as hidden rather than left looking visible')
+  const hiddenRow = Array.from(container.querySelectorAll('.xcb-lldb-row')).find((node) => node.className.includes('invisible'))
+  check(hiddenRow !== undefined, 'a hidden view is drawn the way Lookin draws one: italic, and dimmed')
+  // The row is the Lookin shape — a 15-pixel class icon, the class name, and a subtitle — and the
+  // frame is the extra this panel can afford, since the dump already carried it.
+  check(hiddenRow.querySelector('.xcb-lldb-icon') !== null, 'every row has a class icon')
+  check(hiddenRow.querySelector('.xcb-lldb-frame') !== null, 'and the frame it was laid out in')
+  const indent = (node) => Number(/padding-left:\s*(\d+)/.exec(node.getAttribute('style') ?? '')?.[1] ?? 0)
+  const drawn = Array.from(container.querySelectorAll('.xcb-lldb-row'))
+  check(indent(drawn[1]) > indent(drawn[0]), 'a child is indented under its parent', `${String(indent(drawn[1]))} > ${String(indent(drawn[0]))}`)
+  equal(indent(drawn[1]) - indent(drawn[0]), 14, 'by Lookin\'s own 14 pixels per level')
 
   // The export is written as the tree is read, so the button opens a file that exists — and
   // the head knows which file, because the dump's own answer carried the path.
@@ -2917,20 +2998,158 @@ section('the LLDB drawer')
   const nodeCall = calls.filter((call) => call.method === 'lldb' && call.body.op === 'node').at(-1)
   check(nodeCall !== undefined, 'clicking a row asks the host about that view')
   equal(nodeCall.body.address, '0x2', 'naming the row that was clicked')
-  const detail = container.querySelector('.xcb-lldb-detail')
-  check(detail !== null, 'and a detail pane appears beside the tree')
-  check(detail.textContent.includes('Example.StatusLight'), 'naming the view')
-  const shot = detail.querySelector('.xcb-lldb-shot img')
+  // The inspector is beside the tree, headed by the class the row named and the chain of
+  // ancestors that places it — window down to this view, each link a jump.
+  const insp = container.querySelector('.xcb-lldb-insp')
+  check(insp !== null, 'and an inspector appears beside the tree')
+  check(insp.querySelector('.xcb-lldb-insp-head').textContent.includes('UIStackView'), 'naming the view the row named')
+  equal(insp.querySelector('.xcb-lldb-pane') === null, true, 'beside the tree column, not over it')
+  const chain = Array.from(insp.querySelectorAll('.xcb-lldb-chain-link')).map((node) => node.textContent)
+  equal(chain.join(' > '), 'UIWindow > UIStackView', 'with the chain from the window down to it')
+  // A link in the chain is a jump: clicking the window selects the window.
+  await act(async () => { propsOf(insp.querySelectorAll('.xcb-lldb-chain-link')[0]).onClick() })
+  equal(calls.filter((call) => call.method === 'lldb' && call.body.op === 'node').at(-1)?.body.address, '0x1',
+    'clicking an ancestor in the chain asks about that ancestor')
+  await act(async () => { propsOf(container.querySelectorAll('.xcb-lldb-row')[1]).onClick() })
+  const previewTab = Array.from(insp.querySelectorAll('.xcb-lldb-tab')).find((node) => node.textContent === '预览')
+  await act(async () => { propsOf(previewTab).onClick() })
+  const detail = container.querySelector('.xcb-lldb-preview')
+  check(detail !== null, 'and the preview pane opens')
+  const shot = detail.querySelector('.xcb-lldb-preview-canvas img')
   check(shot !== null && shot.getAttribute('src') === 'data:image/png;base64,iVBORw0KGgo=',
     'showing its own image, not a crop of the screen', shot === null ? '(no image)' : shot.getAttribute('src'))
+  check(detail.textContent.includes('Example.StatusLight'), 'naming the view the host answered about')
   check(detail.textContent.includes('0, 0  116.667×44'), 'with the frame from the host')
   check(detail.querySelector('.xcb-lldb-swatch') !== null, 'and a swatch for its background colour')
-  equal(detail.querySelector('.xcb-lldb-pane') === null, true, 'inside the tree column, not over it')
   check(container.querySelector('.xcb-lldb-row.picked') !== null, 'and the row it belongs to is marked as picked')
   const groupTab = detail.querySelector('.xcb-lldb-shot-group')
   await act(async () => { propsOf(groupTab).onClick() })
-  equal(detail.querySelector('.xcb-lldb-shot img').getAttribute('src'), 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUg==',
+  equal(detail.querySelector('.xcb-lldb-preview-canvas img').getAttribute('src'), 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUg==',
     'the group toggle shows the control with its subtree instead')
+  // Zoom is arithmetic on the transform, so it costs no round trip and no stop.
+  const zoomIn = Array.from(detail.querySelectorAll('.xcb-btn')).find((node) => node.textContent === '+')
+  await act(async () => { propsOf(zoomIn).onClick() })
+  check(/scale\(1\.25\)/.test(detail.querySelector('.xcb-lldb-preview-canvas img').getAttribute('style') ?? ''),
+    'and zooming scales the image in place', detail.querySelector('.xcb-lldb-preview-canvas img').getAttribute('style'))
+
+  // -- the attribute list --------------------------------------------------
+  //
+  // Opening a view reads its attributes at once — the pane is the point of picking a row — and the
+  // list is everything the app says, grouped by the class that declares it, the way Lookin groups
+  // it. The readings and the edits are what the panel sends the app, so they are what is asserted.
+  check(attributeReads.some((read) => read.address === '0x2'), 'picking a view reads its attributes', JSON.stringify(attributeReads))
+  // The read is queued behind the selection's own round trip — `runLldb` runs one operation at a
+  // time — so it lands a tick after the click, exactly as it does against the real host.
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 80)) })
+  // The preview was the pane on screen from the check above; attributes are the default and the one
+  // this half is about.
+  const attrTab = Array.from(insp.querySelectorAll('.xcb-lldb-tab')).find((node) => node.textContent === '属性')
+  await act(async () => { propsOf(attrTab).onClick() })
+  equal(container.querySelectorAll('.xcb-lldb-attrgroup').length, 2, 'the attributes are grouped by the class that declares them')
+  const attrNames = () => Array.from(container.querySelectorAll('.xcb-lldb-attr .xcb-lldb-attr-name')).map((node) => node.textContent)
+  check(attrNames().join(',') === '_text,_numberOfLines,_backgroundColor,_viewFlags,bounds',
+    'every attribute the app printed is on screen, in the order it printed them', attrNames().join(','))
+  const attrRow = (name) => Array.from(container.querySelectorAll('.xcb-lldb-attr'))
+    .find((node) => node.querySelector('.xcb-lldb-attr-name')?.textContent === name)
+  const attrField = (name) => attrRow(name)?.querySelector('input') ?? null
+  // The printed value, not the parsed one: the app said `"row 0"` and `{`, and a pane that showed
+  // `row 0` or `null` would be showing something the app never said.
+  check(attrRow('_viewFlags').querySelector('.xcb-lldb-val').textContent === '{',
+    'a row shows the value exactly as the app printed it', attrRow('_viewFlags').querySelector('.xcb-lldb-val')?.textContent)
+  check(propsOf(attrField('_text')).defaultValue === 'row 0', 'and pre-fills its editor with what is there',
+    JSON.stringify(propsOf(attrField('_text'))))
+  check(propsOf(attrField('_numberOfLines')).defaultValue === '1', 'a number field gets the number, not the text', JSON.stringify(propsOf(attrField('_numberOfLines'))))
+  check(attrRow('_text').className.includes('editable'), 'an attribute that can be written is marked as such')
+  check(attrRow('_viewFlags').className.includes('editable') === false, 'and one whose type the plugin does not understand is not')
+  check(attrField('_viewFlags') === null, 'so it has no field at all', 'it has one')
+  // A row nested inside a struct is indented under it: 14 pixels a level, Lookin's unit.
+  equal(/padding-left:\s*(\d+)/.exec(attrRow('bounds').getAttribute('style'))?.[1], '22', 'a nested member is indented a level in')
+  check(attrField('bounds') === null, 'and is never editable: writing it by name would reach the object\'s own property instead')
+
+  // A class folds away and stays folded: `UIView` declares dozens of rows and most of them are not
+  // the question being asked.
+  const uiViewHead = Array.from(container.querySelectorAll('.xcb-lldb-attrgroup-head')).find((node) => node.textContent.includes('UIView'))
+  equal(container.querySelectorAll('.xcb-lldb-attr').length, 5, 'every row is on screen to begin with')
+  await act(async () => { propsOf(uiViewHead).onClick() })
+  equal(container.querySelectorAll('.xcb-lldb-attr').length, 2, 'clicking a class folds its rows away')
+  await act(async () => { propsOf(uiViewHead).onClick() })
+  equal(container.querySelectorAll('.xcb-lldb-attr').length, 5, 'and clicking it again brings them back')
+
+  // Editing: the panel sends the property name KVC can reach, the kind of editor, and the value.
+  await act(async () => {
+    propsOf(attrField('_numberOfLines')).onBlur({ target: { value: '2' } })
+    await new Promise((resolve) => setTimeout(resolve, 40))
+  })
+  const edit = edits.at(-1)
+  equal(edit?.key, 'numberOfLines', 'a field commits the property name, not the underscored ivar it is shown as')
+  equal(edit?.kind, 'number', 'with the kind of editor it came from')
+  equal(edit?.value, 2, 'and the number that was typed')
+  equal(edit?.address, '0x2', 'against the view that is picked')
+  equal(container.querySelector('.xcb-lldb-editnote'), null, 'and a value the app kept says nothing extra')
+
+  // The case Lookin calls "the modification seems to have no effect": the setter ran, and the app
+  // put its own value back. Saying the edit worked there would be a lie about the running app.
+  editSticks = false
+  await act(async () => {
+    propsOf(attrField('_numberOfLines')).onBlur({ target: { value: '5' } })
+    await new Promise((resolve) => setTimeout(resolve, 40))
+  })
+  const editNote = container.querySelector('.xcb-lldb-editnote')
+  check(editNote !== null && editNote.textContent.includes('1'),
+    'an edit the app did not keep says so, and repeats the value the app reports', editNote?.textContent)
+  editSticks = true
+
+  // -- the layout pane -----------------------------------------------------
+  const layoutTab = Array.from(insp.querySelectorAll('.xcb-lldb-tab')).find((node) => node.textContent === '布局')
+  await act(async () => {
+    propsOf(layoutTab).onClick()
+    await new Promise((resolve) => setTimeout(resolve, 40))
+  })
+  check(calls.some((call) => call.method === 'lldb' && call.body.op === 'constraints' && call.body.address === '0x2'),
+    'the layout pane asks the app for the report when it is first opened')
+  const badges = Array.from(container.querySelectorAll('.xcb-lldb-badge-box')).map((node) => node.textContent)
+  check(badges.some((text) => text.includes('Ambiguous') && text.includes('YES')),
+    'an ambiguous layout is said to be ambiguous', badges.join(' | '))
+  check(badges.some((text) => text.includes('Intrinsic') && text.includes('42.67')),
+    'with the intrinsic size to two places', badges.join(' | '))
+  check(badges.some((text) => text.includes('Hugging') && text.includes('250')),
+    'and the hugging priority', badges.join(' | '))
+  const constraintText = container.querySelector('.xcb-lldb-constraint')?.textContent ?? ''
+  check(constraintText.includes('width == 200'), 'the constraints are listed as the runtime printed them', constraintText)
+  // A constraint names the views it relates by printing them, so an address that is in the tree
+  // becomes a way to reach the other end of it.
+  const jump = container.querySelector('.xcb-lldb-jump')
+  check(jump !== null, 'a constraint naming a view in the tree offers to select it')
+  await act(async () => {
+    propsOf(jump).onClick()
+    await new Promise((resolve) => setTimeout(resolve, 40))
+  })
+  equal(calls.filter((call) => call.method === 'lldb' && call.body.op === 'node').at(-1)?.body.address, '0x2',
+    'and clicking it selects that view')
+
+  // -- the drawer fills the panel ------------------------------------------
+  //
+  // The drawer is a strip at the bottom of the panel; a hierarchy beside an attribute list beside a
+  // console does not fit in a strip, so it can be given the whole panel — the same drawer, not a
+  // second window, so nothing about it stops working when it is big.
+  const maxButton = container.querySelector('.xcb-lldb-max')
+  check(maxButton !== null, 'the debugger offers to fill the panel')
+  await act(async () => { propsOf(maxButton).onClick() })
+  check(container.querySelector('.xcb-lldb.max') !== null, 'and clicking it gives the debugger the whole panel')
+  check(container.querySelector('.xcb-lldb-tree') !== null && container.querySelector('.xcb-lldb-log') !== null,
+    'with the tree and the console still there')
+  await act(async () => { propsOf(container.querySelector('.xcb-lldb-max')).onClick() })
+  check(container.querySelector('.xcb-lldb.max') === null, 'clicking it again gives the panel back')
+
+  // -- focus ---------------------------------------------------------------
+  const stackRow = Array.from(container.querySelectorAll('.xcb-lldb-row')).find((node) => node.textContent.includes('UIStackView'))
+  await act(async () => { propsOf(stackRow).onDoubleClick() })
+  const focused = Array.from(container.querySelectorAll('.xcb-lldb-row .xcb-lldb-class')).map((node) => node.textContent)
+  equal(focused.join(' > '), 'UIStackView > Example.StatusLight', 'a double-click focuses that view and its subtree')
+  await act(async () => {
+    propsOf(buttonNamed(container, '退出聚焦')).onClick()
+  })
+  equal(container.querySelectorAll('.xcb-lldb-row').length, 4, 'and leaving focus shows the whole hierarchy again')
 
   // A picked view becomes the command bar's object: a chip names it, one-click commands act on it,
   // and `$v` in a typed command stands for it.
@@ -2986,7 +3205,7 @@ section('the LLDB drawer')
       await new Promise((resolve) => setTimeout(resolve, 30))
     })
     equal(container.querySelector('.xcb-lldb-row.picked'), null, 'a second click on the picked row deselects it')
-    equal(container.querySelector('.xcb-lldb-detail'), null, 'and closes its details')
+    equal(container.querySelector('.xcb-lldb-insp-head').textContent.includes('No view picked'), true, 'and lets go of the inspector')
     equal(container.querySelector('.xcb-lldb-chip'), null, 'and the command bar no longer aims at it')
     equal(calls.filter((call) => call.method === 'lldb' && call.body.op === 'node').length, nodeCalls, 'without asking the host again')
 
@@ -3028,10 +3247,23 @@ section('the LLDB drawer')
 
   // Filtering is local: the tree is already in hand, so a keystroke is not a round trip.
   const before = calls.length
-  const filter = container.querySelector('.xcb-lldb-filter')
+  const filter = container.querySelector('.xcb-lldb-filterinput')
   await act(async () => { propsOf(filter).onChange({ target: { value: 'StatusLight' } }) })
   equal(container.querySelectorAll('.xcb-lldb-row').length, 3, 'the filter keeps the match and the ancestors that place it')
   check(container.textContent.includes('other') === false, 'and drops the branch that does not match')
+  // A kept row that is not itself a match is drawn dimmer, so the hits are what the eye lands on
+  // without the shape of the tree being lost.
+  const kept = Array.from(container.querySelectorAll('.xcb-lldb-row'))
+  equal(kept.filter((node) => node.className.includes('hit')).length, 1, 'the row that matched is marked as the hit')
+  equal(kept.filter((node) => node.className.includes('context')).length, 2, 'and the ancestors kept to place it are drawn as context')
+  equal(container.querySelector('.xcb-lldb-hitcount')?.textContent, '1 处', 'and the bar says how many views matched')
+  // Nothing found is said, not left as an empty list that looks like an app with no views.
+  await act(async () => { propsOf(filter).onChange({ target: { value: 'no-such-view-anywhere' } }) })
+  equal(container.querySelectorAll('.xcb-lldb-row').length, 0, 'a search that matches nothing draws no rows')
+  check(container.querySelector('.xcb-lldb-empty') !== null, 'and says so in as many words')
+  check(container.querySelector('.xcb-lldb-hitcount').className.includes('none'), 'with the count marked as nothing found')
+  await act(async () => { propsOf(filter).onKeyDown({ key: 'Escape' }) })
+  equal(container.querySelectorAll('.xcb-lldb-row').length, 4, 'Escape clears the search and the whole tree is back')
   // A dump leaves the app stopped, so Continue has to be there to let it go again —
   // otherwise the only way out of a stopped app would be to detach.
   const continueButton = Array.from(container.querySelectorAll('.xcb-btn')).find((node) => node.textContent === 'Continue')

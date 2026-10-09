@@ -82,10 +82,30 @@ a colour-coded streaming log, and a filter bar.
 strip that is hidden the rest of the time. `View Hierarchy` answers the question a screenshot cannot:
 it attaches LLDB to the app this project last ran, stops it, and draws the key window's view tree —
 class, address, frame, text, hidden flag, and a stack view's `axis`/`distribution`/`alignment`, which
-is usually why a screen looks wrong. A filter narrows it by class or text without asking the host
-again, and a box at the bottom takes any LLDB command. The drawer is the *same* session the model
-uses, so a session the model starts opens it — transcript and all — and the user can take the prompt
-over from there.
+is usually why a screen looks wrong. A filter narrows it by class, text or address without asking the
+host again — the rows that match are highlighted, the ancestors that place them are dimmed, and the
+bar says how many matched — and a box at the bottom takes any LLDB command. The drawer is the *same*
+session the model uses, so a session the model starts opens it — transcript and all — and the user
+can take the prompt over from there. `⤢` gives the drawer the whole panel (and `⤡` gives it back;
+the panel itself is resizable by its corner), and a double-click on a row focuses that view's
+subtree.
+
+**An inspector beside the tree, built on LLDB alone.** Picking a view opens three panes and no
+Lookin server anywhere:
+
+- **属性** — everything the app says about the object, grouped by the class that declares it, read in
+  one stop with `_ivarDescription`. `⌘L`-style rows that can be written get an editor chosen from the
+  declared type: a switch for a `BOOL`, a field for a number, a text field for a string, a colour well
+  for a `UIColor`, four boxes for a `CGRect`. The edit goes to the app as `setValue:forKey:` and the
+  pane then shows **what the app reports**, so a value its own layout code writes back says so
+  instead of pretending to have changed.
+- **布局** — Auto Layout in one expression: whether the autoresizing mask is still translating,
+  whether the engine calls the layout ambiguous, the intrinsic size, hugging and resistance, this
+  view's own constraints, and the ones living on its ancestors that mention it. An address inside a
+  constraint's text is a button that selects that view.
+- **预览** — the rendered image of the view, solo or with its subtree, with zoom and pan.
+
+Above the panes, the chain from the window down to the picked view, each link a jump.
 
 **A tree Lookin can open.** [Lookin](https://lookin.work) is the better window onto a hierarchy, and
 the `Lookin` button in the drawer opens the tree there — but Lookin normally needs its own server

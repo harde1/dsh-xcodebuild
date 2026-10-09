@@ -1,5 +1,57 @@
 # Changelog
 
+## 0.6.0
+
+### Added
+
+- **The LLDB drawer is a workspace now: a Lookin-shaped hierarchy on the left, an inspector on the
+  right.** Everything below is LLDB only — no LookinServer, no second process in the app.
+  - **属性**: every attribute the app reports, read in one stop with `_ivarDescription`, grouped by
+    the class that declares it. Rows that can be written get an editor chosen from the declared type
+    — a switch for `BOOL`, a field for a number, a text field for `NSString`, a colour well for
+    `UIColor`, four boxes for a `CGRect` — and an edit reports what the app says afterwards, including
+    the "the modification seems to have no effect" case where the app's own code writes it back.
+  - **布局**: Auto Layout in one expression — translatesAutoresizingMask, ambiguity, intrinsic size,
+    hugging and resistance, the view's own constraints, and the constraints on ancestors that mention
+    it. An address in a constraint is a button that selects that view.
+  - **预览**: the view's rendered image, solo or with its subtree, with zoom and pan.
+  - **The chain** from the window down to the picked view sits above the panes, and every link is a
+    jump to that ancestor.
+  - **⤢ fills the panel** with the debugger and ⤡ gives it back — the same drawer, not a second
+    window, so the console and the prompt keep working either way. The panel's own corner drag
+    resizes it first if 520 points is not enough.
+  - **A double-click focuses a subtree**: the tree becomes that view and its children, with the
+    indentation re-based, and 退出聚焦 returns to the whole hierarchy.
+
+### Changed
+
+- **The hierarchy rows are drawn the way Lookin draws them**: 28 pixels high, 14 pixels of
+  indentation per level, a 15-pixel icon per class family, the class name with a subtitle beside it
+  (a label's text, a stack view's `axis`/`distribution`/`alignment`, a hidden or partly transparent
+  view's flag), and the frame on the right. Hidden and transparent views are drawn italic and dimmed
+  rather than looking live.
+- **The tree is rendered as a window over its rows** instead of all of them at once, which is what
+  makes a hierarchy of thousands scrollable and a keystroke in the filter cheap.
+- **The filter moved to the foot of the list it filters**, matches are highlighted, the ancestors kept
+  to place them are dimmed, the bar counts the matches, and a search that finds nothing says so.
+- **The first read of an attribute list is queued behind the selection it belongs to** instead of
+  being refused: the drawer runs one LLDB operation at a time, and the attribute pane used to be left
+  blank because its read arrived while the selection's own read was still in flight.
+
+### Fixed
+
+- **A constraint expression that the debugger would not compile.** Against a live app, `for (c in
+  own)` is rejected — "may not respond to `countByEnumeratingWithState:objects:count:`" — and
+  `[c firstItem]` needs its return type cast. The report is indexed and cast throughout now, and it
+  was measured against a running app before shipping.
+- **A `CGRect` printed the way the runtime prints it** — `{{0, 0}, {200, 20.33}}` — is read through
+  its nesting, so rectangles are editable at all; before, every one of them was refused.
+- **An underscored ivar is matched to the property KVC can reach.** A real dump says
+  `_numberOfLines`, and the whitelist says `numberOfLines`; the two never matched, so a 327-row
+  UILabel dump offered no editor at all.
+- **A row nested inside a struct is never editable.** `_intrinsicSizeBaselineInfo`'s own `bounds`
+  would have been written as the view's `bounds` — a different thing, silently.
+
 ## 0.5.3
 
 ### Changed
