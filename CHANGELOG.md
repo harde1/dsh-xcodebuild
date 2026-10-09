@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.6.3
+
+### Fixed
+
+- **A read that names a pid and no destination was still treated as a fresh attach.** 0.6.2 answered an
+  *unnamed* read from the session that is attached, but it called a request unnamed only when it named
+  nothing at all, and the panel does send a pid — the app picked from the Apps list — or a bundle id
+  without a destination. `id` is the only field that comes from a destination string, and
+  `attachCommands` only ever emits `device select <id>` for it: without one, LLDB attaches on whatever
+  device is already selected, which is the one being read. So such a request could not reach a
+  different app, and resolving it could only cost the working session. Measured live with a session
+  attached, all three shapes the panel sends — address only, pid only, bundle id only — now answer
+  from that session in 0 ms; before, each disposed it and failed with `the device  () is not one lldb
+  can attach to right now`.
+- The same live run shows the bound working and saying so: 93 of 96 views read before the 6-second
+  budget ran out, `detailsCapped: true`, the remaining three on demand.
+
 ## 0.6.2
 
 ### Fixed

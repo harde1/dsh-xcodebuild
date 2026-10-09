@@ -3242,6 +3242,11 @@ section('the LLDB drawer')
   check(composer.draft.includes('parent: UIStackView 0x2'), 'and its parent', composer.draft)
   check(composer.draft.includes('HIDProbe'), 'and which app it is in', composer.draft)
   check(container.querySelector('.xcb-lldb-rowmenu') === null, 'the menu closes once used')
+  // Right-click picked that row, as a native list does; put the pick back where the next checks expect it.
+  await act(async () => {
+    propsOf(Array.from(container.querySelectorAll('.xcb-lldb-row')).find((node) => node.textContent.includes('UIStackView'))).onClick()
+    await new Promise((resolve) => setTimeout(resolve, 40))
+  })
 
   // -- focus ---------------------------------------------------------------
   const stackRow = Array.from(container.querySelectorAll('.xcb-lldb-row')).find((node) => node.textContent.includes('UIStackView'))

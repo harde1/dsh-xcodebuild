@@ -283,6 +283,10 @@ const lldbRoute = registeredRoutes.find((route) => route.path.endsWith('/lldb'))
 // workspace's runs used to produce an EMPTY device target: the panel then showed
 // `the device  () is not one lldb can attach to right now` on every attribute and layout read, while
 // the tree beside it had just come from a live session (measured live on 0.6.0).
+//
+// The same answer is owed to a read carrying only a pid: a pid names a process, not a device, so
+// resolving it would drop the session the user is looking at to look for a device that was never
+// named.
 {
   const res = fakeResponse()
   await lldbRoute.handler(fakeRequest({ body: JSON.stringify({ sessionId: 'lookin-none', op: 'attributes', address: '0x105b17fe0' }) }), res)
@@ -290,6 +294,14 @@ const lldbRoute = registeredRoutes.find((route) => route.path.endsWith('/lldb'))
   equal(answer.ok, false, 'an attribute read with nothing attached is refused')
   check(String(answer.note).length > 0, 'and it says something', answer.note)
   equal(/the device  \(\)/.test(String(answer.note)), false, 'but never describes a device with no name at all')
+
+  // A pid without a destination is the same case: it cannot name a device, so with nothing attached
+  // it is this answer and not a device list.
+  const pidOnly = fakeResponse()
+  await lldbRoute.handler(fakeRequest({ body: JSON.stringify({ sessionId: 'lookin-none', op: 'attributes', address: '0x105b17fe0', pid: 20399 }) }), pidOnly)
+  const pidAnswer = JSON.parse(pidOnly.body)
+  equal(pidAnswer.ok, false, 'a read naming a pid but no device is refused while nothing is attached')
+  equal(/the device  \(\)/.test(String(pidAnswer.note)), false, 'and does not describe a device with no name either')
 }
 
 // Method guard.
