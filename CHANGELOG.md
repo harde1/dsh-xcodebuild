@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.5.3
+
+### Changed
+
+- **The LLDB drawer shows the tree and the log on one page, tree above.**
+  - Each section scrolls on its own. The log keeps its tail-following and its ↓ Latest button.
+  - A command's answer no longer switches the view away from the tree.
+  - The Tree button folds the tree section away and brings it back, and the log takes the room.
+  - A new View Hierarchy read opens the tree again.
+  - The drawer now takes a fixed 52 % of the panel instead of sizing to its content, so both sections
+    have room.
+
 ## 0.5.2
 
 ### Added

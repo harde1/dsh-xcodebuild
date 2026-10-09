@@ -2814,9 +2814,7 @@ section('the LLDB drawer')
     staleSnapshot = null
     sessionState = saved
     await act(async () => { await new Promise((resolve) => setTimeout(resolve, 1600)) })
-    // The command switched the drawer to its log; the checks that follow read the tree.
-    const treeTab = Array.from(container.querySelectorAll('.xcb-lldb-tab, .xcb-tab, button')).find((node) => node.textContent === 'Tree')
-    if (treeTab !== undefined) await act(async () => { propsOf(treeTab).onClick() })
+
   }
   // While attaching (the blinking yellow light) Lookin waits: both exports read the tree, which needs
   // the stop the attach has not delivered yet.
@@ -2959,9 +2957,9 @@ section('the LLDB drawer')
     })
     const typed = calls.filter((call) => call.method === 'lldb' && call.body.op === 'command').at(-1)
     equal(typed?.body.command, 'po [((UIStackView *)0x2) alpha]', 'and $v in a typed command becomes that view')
-    // A command switches the drawer to its log; the tree is where the rows are.
-    const treeTab = Array.from(container.querySelectorAll('.xcb-lldb-tab')).find((node) => /Tree/.test(node.textContent))
-    if (treeTab !== undefined) await act(async () => { propsOf(treeTab).onClick() })
+    // The tree and the log share a page: the command's answer lands below and the rows stay in view.
+    check(container.querySelector('.xcb-lldb-treesec .xcb-lldb-row') !== null && container.querySelector('.xcb-lldb-logsec .xcb-lldb-log') !== null,
+      'after a command the tree is still on screen, with the log beneath it')
 
     // ↑/↓ in the prompt walks every command the drawer sent — typed, and sent by a view's buttons —
     // newest first, and ↓ past the newest puts back what was being typed.
@@ -3106,8 +3104,16 @@ section('the LLDB drawer')
     // would scroll away with the lines it is meant to sit over.
     check(jump !== null && jump.parentElement === log.parentElement && jump.parentElement.className.includes('xcb-lldb-logwrap'),
       'and it floats over the transcript rather than scrolling inside it')
-    check(log.closest('.xcb-lldb-body')?.className.includes(' log') === true,
-      'on the log tab the body hands scrolling to the transcript, so the transcript is what scrolls')
+    check(log.parentElement?.parentElement?.className.includes('xcb-lldb-logsec') === true,
+      'the transcript sits in its own section under the tree, and is what scrolls there')
+    // The Tree button folds the tree section away and brings it back; the log stays either way.
+    const treeToggle = Array.from(container.querySelectorAll('.xcb-lldb-tab')).find((node) => node.textContent === 'Tree')
+    check(treeToggle !== undefined && treeToggle.className.includes(' on'), 'the Tree button shows the tree section is open')
+    await act(async () => { propsOf(treeToggle).onClick() })
+    equal(container.querySelector('.xcb-lldb-treesec'), null, 'clicking Tree hides the tree section')
+    check(container.querySelector('.xcb-lldb-logsec .xcb-lldb-log') !== null, 'and the log stays, taking the room')
+    await act(async () => { propsOf(Array.from(container.querySelectorAll('.xcb-lldb-tab')).find((node) => node.textContent === 'Tree')).onClick() })
+    check(container.querySelector('.xcb-lldb-treesec') !== null, 'clicking it again brings the tree back above the log')
     equal(jump?.textContent, '↓ Latest', 'which says it goes to the latest output')
     await act(async () => { propsOf(jump).onClick() })
     equal(log.scrollTop, 1000, 'clicking it scrolls to the newest line')
