@@ -2829,10 +2829,15 @@ section('the LLDB drawer')
   })
   check(container.querySelector('.xcb-lldb') !== null, 'Command-L opens the drawer')
   equal(container.querySelectorAll('.xcb-line').length, 0, 'and it is not a log row: it uses its own classes')
-  // Nothing is mounted yet, so only the way to mount something is offered.
+  // Nothing is mounted yet, so the way to mount something is offered — and View Hierarchy with it,
+  // because that press is what attaches: the empty tree names it, and a named button that is not on
+  // screen is how the drawer came to say "press View Hierarchy" with no such button in it.
   check(buttonNamed(container, 'Apps') !== undefined, 'with no app mounted, Apps is offered')
-  check(buttonNamed(container, 'View Hierarchy') === undefined && buttonNamed(container, 'Lookin') === undefined,
-    'and nothing that reads an app is, because there is no app to read')
+  check(buttonNamed(container, 'View Hierarchy') !== undefined,
+    'and View Hierarchy is offered too: pressing it is what attaches')
+  check(buttonNamed(container, 'Lookin') === undefined, 'while Lookin is not, because there is nothing to open yet')
+  check(container.textContent.includes('Apps picks one that is running now'),
+    'and the empty tree names the buttons that are on screen')
 
   await mountApp(container)
   const attachCall = calls.filter((call) => call.method === 'lldb' && call.body.op === 'attach').at(-1)
@@ -3384,8 +3389,9 @@ section('the LLDB drawer')
     await new Promise((resolve) => setTimeout(resolve, 80))
   })
   check(buttonNamed(container, 'Apps') !== undefined, 'after a detach, Apps is offered again')
-  check(buttonNamed(container, 'View Hierarchy') === undefined && buttonNamed(container, 'Lookin') === undefined,
-    'and View Hierarchy and Lookin are gone with the app')
+  check(buttonNamed(container, 'Lookin') === undefined, 'and Lookin is gone with the app')
+  check(buttonNamed(container, 'View Hierarchy') !== undefined,
+    'but View Hierarchy stays: a detached app is still one a press can attach to')
 
   // A refused dump is the drawer's business, not the build panel's.
   const refusing = serve({
@@ -3640,7 +3646,7 @@ section('a Build & Run mounts the app it launched')
   })
   check(calls.some((call) => call.method === 'stop'), 'Stop ends the run')
   check(buttonNamed(container, 'Apps') !== undefined, 'and Apps comes back once the app is let go')
-  check(buttonNamed(container, 'View Hierarchy') === undefined, 'with View Hierarchy gone')
+  check(buttonNamed(container, 'View Hierarchy') !== undefined, 'with View Hierarchy still offered to read it again')
 }
 
 console.log(`${checks - failures}/${checks} checks passed`)

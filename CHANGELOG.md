@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.6.1
+
+### Fixed
+
+- **The drawer told the user to press a button it was hiding.** With nothing mounted, the view tree's
+  own empty state says "View Hierarchy attaches to the app this project last ran and reads it" — and
+  `View Hierarchy` was rendered only while an app was already mounted, so the instruction pointed at a
+  button that was not on screen. Seen on a live panel, the head was `Tree · Apps · History · ⤢ · ✕`
+  and the tree stayed empty with no way to ask for it from the drawer. That press is what *attaches*,
+  so it is offered whenever the drawer is open; when it finds nothing, the host answers with its own
+  note ("nothing to attach to: no process name, bundle id or pid") instead of the panel saying
+  nothing at all. `Apps` still appears only while nothing is mounted, and `Lookin` only once a tree
+  exists. The empty state now names the buttons that are actually there.
+
 ## 0.6.0
 
 ### Added
