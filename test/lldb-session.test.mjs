@@ -531,6 +531,26 @@ section('resume continues a STOPPED process only')
   eq(child.written.filter((line) => line === 'continue').length, 1, 'a stopped app is continued once, however often it is asked')
 }
 
+section('a SIGKILL stop is the app being killed, not a stop to read from')
+{
+  // Measured on 蜜语-Dev: after a long stop the system killed the app, and lldb printed
+  // `Process N stopped` / `stop reason = signal SIGKILL` / `Target 0: (蜜语-Dev) stopped.`
+  eq(readLldbState('* thread #1, queue = \'com.apple.main-thread\', stop reason = signal SIGKILL').state, 'exited',
+    'the SIGKILL line reads as gone')
+  const { session, child } = sessionWith(() => {})
+  session.start()
+  await session.send('process status')
+  child.say('Process 23902 stopped')
+  child.say('* thread #1, queue = \'com.apple.main-thread\', stop reason = signal SIGKILL')
+  child.say('    frame #0: 0x0000000241698cd4 libsystem_kernel.dylib`mach_msg2_trap + 8')
+  child.say('Target 0: (蜜语-Dev) stopped.')
+  await sleep(20)
+  eq(session.state, 'exited', 'and the settled stop that follows does not turn it green again')
+  check(/SIGKILL/.test(session.summary().detail), 'the reason is said', session.summary().detail)
+  const evaluated = await session.evaluate('po 1')
+  eq(evaluated.ok, false, 'so no expression is sent into a process being torn down')
+}
+
 section('polling with the summary\'s cursor never returns a line twice')
 {
   // The drawer polls `readLines(next)` and stores the answer's `next`. With `lineCount` as the cursor

@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.4.13
+
+### Fixed
+
+- **The state light no longer contradicts the transcript.**
+  - A drawer operation (a command, a read, a mount) answers with the session as it was when that
+    operation finished.
+  - That answer could land after a poll that had already read a newer state line, and paint the light
+    back: green over a `Process N resuming` the transcript was already showing.
+  - The panel now keeps an operation's session only when it is at least as new as the one it holds,
+    judged by the host's line count.
+- **A SIGKILL stop shows red, not green.**
+  - Measured on 蜜语-Dev: after the app had been held stopped, the system killed it. lldb printed
+    `Process N stopped`, then `stop reason = signal SIGKILL`, then `Target 0: (蜜语-Dev) stopped.`
+  - Those lines read as a stop that expressions can run in, so the light turned green.
+  - It is now reported as gone, with the reason in the light's hover text. The settled stop line that
+    follows does not turn it back, and no expression is sent into the dying process.
+
 ## 0.4.12
 
 ### Fixed

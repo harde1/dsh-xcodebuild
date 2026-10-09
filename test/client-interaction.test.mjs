@@ -2688,7 +2688,10 @@ section('the LLDB drawer')
   // seen to appear when the app is in the state that button is for.
   let sessionState = 'stopped'
   const transcript = [{ n: 1, t: 'Process 13290 stopped' }, { n: 2, t: 'Target 0: (HIDProbe) stopped.' }]
-  const sessionAt = (state) => ({ ...TREE.session, state })
+  // The host's line count rides on every summary: it is how the panel tells a fresh answer from a
+  // snapshot taken before lines it has already shown.
+  const sessionAt = (state) => ({ ...TREE.session, state, lineCount: transcript.length })
+  let staleSnapshot = null
   const calls = serve({
     state: () => ({ workspace: '/tmp', activeRunId: null, runs: [] }),
     doctor: () => ({ tools: [], missingRequired: [] }),
@@ -2708,7 +2711,7 @@ section('the LLDB drawer')
       if (body.op === 'lookinHistory') return { ok: true, entries: history, keep: 3 }
       if (body.op === 'lookinOpenFile') return { ok: true, note: 'opened in /Applications/Lookin.app', path: body.name }
       if (body.op === 'lookinDelete') { history = history.filter((entry) => entry.name !== body.name); return { ok: true, entries: history, note: 'deleted' } }
-      if (body.op === 'command') return { ok: true, note: '', output: '2', session: sessionAt(sessionState) }
+      if (body.op === 'command') return { ok: true, note: '', output: '2', session: staleSnapshot ?? sessionAt(sessionState) }
       if (body.op === 'node') {
         return {
           ok: true,
@@ -2788,6 +2791,33 @@ section('the LLDB drawer')
 
   // The export is written as the tree is read, so the button opens a file that exists — and
   // the head knows which file, because the dump's own answer carried the path.
+  // An operation's answer is a snapshot from when IT finished. The poll that ran meanwhile may
+  // already know better — the app resumed, or was killed — and the late snapshot must not paint over
+  // it: the light then said green while the transcript said `resuming`.
+  {
+    const saved = sessionState
+    sessionState = 'running'
+    staleSnapshot = { state: 'stopped', lineCount: 1 }
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 1600)) })
+    check(container.querySelector('.xcb-lldb-light.yellow') !== null, 'the poll shows the app running', container.querySelector('.xcb-lldb-light')?.className)
+    // A command whose answer carries the session as it was BEFORE lines the drawer already showed.
+    transcript.push({ n: transcript.length + 1, t: 'Process 13290 resuming' })
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 1600)) })
+    staleSnapshot = { ...TREE.session, state: 'stopped', lineCount: 1 }
+    const input = container.querySelector('.xcb-lldb-cmd')
+    await act(async () => { propsOf(input).onChange({ target: { value: 'po 1' } }) })
+    await act(async () => { propsOf(input).onKeyDown({ key: 'Enter', preventDefault() {} }) })
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 50)) })
+    check(container.querySelector('.xcb-lldb-light.green') === null, 'and an older snapshot arriving later does not turn it back to green',
+      container.querySelector('.xcb-lldb-light')?.className)
+    transcript.splice(2)
+    staleSnapshot = null
+    sessionState = saved
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 1600)) })
+    // The command switched the drawer to its log; the checks that follow read the tree.
+    const treeTab = Array.from(container.querySelectorAll('.xcb-lldb-tab, .xcb-tab, button')).find((node) => node.textContent === 'Tree')
+    if (treeTab !== undefined) await act(async () => { propsOf(treeTab).onClick() })
+  }
   // While attaching (the blinking yellow light) Lookin waits: both exports read the tree, which needs
   // the stop the attach has not delivered yet.
   {
@@ -2962,6 +2992,7 @@ section('the LLDB drawer')
     calls.slice(before).map((call) => `${call.method}${call.body?.op === undefined ? '' : `:${call.body.op}`}`).join(','))
 
   // A raw command, typed by the user, in the same session the model uses.
+  const commandsBefore = calls.filter((call) => call.method === 'lldb' && call.body.op === 'command').length
   const box = container.querySelector('.xcb-lldb-cmd')
   check(box !== null, 'there is a prompt to type an lldb command into')
   await act(async () => { propsOf(box).onChange({ target: { value: 'po 1 + 1' } }) })
@@ -2969,7 +3000,7 @@ section('the LLDB drawer')
     propsOf(box).onKeyDown({ key: 'Enter' })
     await new Promise((resolve) => setTimeout(resolve, 60))
   })
-  const sent = calls.filter((call) => call.method === 'lldb' && call.body.op === 'command')
+  const sent = calls.filter((call) => call.method === 'lldb' && call.body.op === 'command').slice(commandsBefore)
   equal(sent.length, 1, 'Enter sends the command')
   equal(sent[0].body.command, 'po 1 + 1', 'and sends exactly what was typed')
   check(container.querySelector('.xcb-lldb-log') !== null, 'the transcript is what the drawer shows after a command')
@@ -3279,7 +3310,9 @@ section('a Build & Run mounts the app it launched')
   // may attach once too; what matters is that it happens now, and never again once mounted.
   // Counted by this section's own app, so a panel left from an earlier section attaching late
   // cannot make the "only once" check flaky.
-  const mine = (call) => call.method === 'lldb' && call.body.op === 'attach' && call.body.appPath === '/tmp/Build/HIDProbe.app'
+  // Counted by this panel's own session id: panels from earlier sections are still alive and talk to
+  // this same fake host about the same app, so the app path alone could not tell them apart.
+  const mine = (call) => call.method === 'lldb' && call.body.op === 'attach' && call.body.sessionId === 'lldb-run'
   const autoAttach = calls.filter(mine)
   check(autoAttach.length >= 1, 'opening the drawer attaches to the launched app at once, not on the first read')
   equal(autoAttach[0]?.body.process, 'HIDProbe', 'by the process the run launched')
