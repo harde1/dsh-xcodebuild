@@ -11,7 +11,7 @@
 //
 // Run: node test/host-mount.test.mjs
 
-import { existsSync } from 'node:fs'
+import { existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -278,6 +278,20 @@ const lldbRoute = registeredRoutes.find((route) => route.path.endsWith('/lldb'))
   check(/View Hierarchy/.test(String(answer.note)), 'and the refusal names the action that writes the file', res.body)
 }
 
+// An unnamed read with nothing attached is answered as "nothing to read from", not as a device
+// lookup. Every inspector read carries an address and nothing else, and resolving that against the
+// workspace's runs used to produce an EMPTY device target: the panel then showed
+// `the device  () is not one lldb can attach to right now` on every attribute and layout read, while
+// the tree beside it had just come from a live session (measured live on 0.6.0).
+{
+  const res = fakeResponse()
+  await lldbRoute.handler(fakeRequest({ body: JSON.stringify({ sessionId: 'lookin-none', op: 'attributes', address: '0x105b17fe0' }) }), res)
+  const answer = JSON.parse(res.body)
+  equal(answer.ok, false, 'an attribute read with nothing attached is refused')
+  check(String(answer.note).length > 0, 'and it says something', answer.note)
+  equal(/the device  \(\)/.test(String(answer.note)), false, 'but never describes a device with no name at all')
+}
+
 // Method guard.
 {
   const res = fakeResponse()
@@ -339,13 +353,20 @@ const projectsRoute = registeredRoutes.find((route) => route.path.endsWith('/pro
 // The picker's data source. A directory holding no Xcode project is an empty
 // answer, not a failure: the panel has to be able to say "nothing here" without
 // dressing it up as an error.
+//
+// The directory is made here rather than borrowed from the plugin's own tree: that tree
+// held no Xcode project when this test was written, and it holds one now (a checked-out
+// Lookin under `docs/`, ignored by git and not the plugin's business) — so the check
+// passed or failed according to what happened to be on disk beside it.
 {
+  const empty = mkdtempSync(join(tmpdir(), 'dsh-xcodebuild-noproject-'))
   const res = fakeResponse()
-  await projectsRoute.handler(fakeRequest({ body: JSON.stringify({ path: pluginRoot }) }), res)
+  await projectsRoute.handler(fakeRequest({ body: JSON.stringify({ path: empty }) }), res)
   equal(res.statusCode, 200, 'projects answers 200 for a directory with no Xcode project')
   const payload = JSON.parse(res.body)
   equal(payload.candidates, [], 'and reports no candidates')
-  equal(payload.root, pluginRoot, 'and names the directory it searched')
+  equal(payload.root, empty, 'and names the directory it searched')
+  rmSync(empty, { recursive: true, force: true })
 }
 
 // A path that does not exist IS a failure.

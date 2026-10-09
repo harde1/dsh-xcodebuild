@@ -1,5 +1,57 @@
 # Changelog
 
+## 0.6.2
+
+### Fixed
+
+- **Every attribute and layout read failed with `the device  () is not one lldb can attach to right
+  now. lldb can attach to: chuck的iPhone (…)` — while the tree beside it had just been read from that
+  very session.** The inspector's reads carry a view address and nothing else, and the host resolved
+  that into a target by falling back to the workspace's runs. With no run to fall back to it built an
+  *empty* device target, which matched no live session: `lldbEnsureAttached` therefore disposed the
+  working attach and tried to attach to a nameless device. `op=view` was unaffected because the panel
+  sends it a destination and a bundle id, which is why the tree worked and both panes under it did
+  not. Reproduced through the plugin's own route on a simulator before it was touched: `attributes`
+  1515 ms and `constraints` 911 ms, both `ok: false`; `node` fine because it formats what is already
+  in hand. A request that names no app at all is now answered by the session that is attached, and
+  says `nothing is attached, and this read named no app: press View Hierarchy, or pick one with Apps`
+  when there is none. The panel sends the target it knows on every inspector read, so a read with
+  nothing attached still attaches to the right app.
+- **The panes were empty because the data behind them was fetched per click.** See below: the tree
+  read now brings them.
+- **Maximised, the drawer changed its margins and nothing else.** `.xcb-lldb` is a 52%-tall strip, and
+  `⤢` only overrode that height with `100%` of a parent that is itself a flex column of other
+  sections, so the tree, the panes and the console stayed in the same strip with less room around
+  them. Maximised it now grows into the panel (`flex: 1 1 auto`), which is what the button says.
+
+### Changed
+
+- **One stop reads the tree, every view's attributes and every view's layout — and a click costs
+  nothing.** Lookin's shape, and the measurement is what makes it affordable: an attach costs 4.2 s to
+  a simulator (15–23 s to a phone) while one `_ivarDescription` in a process that is already stopped
+  costs about 20 ms and one layout report about 10 ms — 80 dumps added 1.6 s, 80 layout reports 0.9 s,
+  against a 5.4 s attach. 96 views of the test app come back fully read (`detailsAttributes 96`,
+  `detailsLayouts 96`) in 6.0 s of stopped time, as a 2.9 MB payload; the model's own tree read asks
+  for none of it and is unchanged. The pass is bounded twice over, because a real app has thousands of
+  views and a stopped app is a frozen one: 400 views and 6 s, with `已缓存 N 个视图` in the tree's
+  stats and `（部分）` when the bounds stopped it. A view the pass did not reach is read on demand when
+  it is opened, and `刷新` re-reads the picked view.
+- The layout report is kept per address like the attribute lists, instead of a single slot cleared on
+  every selection: clicking back and forth between two views no longer re-reads either of them.
+- The host's own attribute cache is no longer thrown away by the export that follows a tree read. It
+  clears for the tree that just went out of date, and the lists read in the same stop as the new tree
+  are put back — a per-view read of a cached view is now 1 ms (`cached: true`) instead of a stop.
+
+### Tests
+
+- The mount suite's "a directory with no Xcode project reports no candidates" borrowed the plugin's own
+  tree for the empty case. That tree holds a checked-out Lookin under `docs/` now, so the check passed
+  or failed according to what was on disk beside it; it makes its own empty directory.
+- New coverage: the panel asks the tree read for the details, a cached view is painted without asking
+  the app anything (the ops are asserted to be *absent*), a view the bounds left out is still read when
+  it is opened, and an attribute read with nothing attached says so instead of describing a device with
+  no name.
+
 ## 0.6.1
 
 ### Fixed

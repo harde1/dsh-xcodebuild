@@ -91,10 +91,18 @@ the panel itself is resizable by its corner), and a double-click on a row focuse
 subtree.
 
 **An inspector beside the tree, built on LLDB alone.** Picking a view opens three panes and no
-Lookin server anywhere:
+Lookin server anywhere. They are drawn from **one read**: the stop that reads the tree also reads
+every view's attributes and layout, and a click afterwards costs nothing — no second attach, no
+second stop, no round trip at all. Attaching is the expensive half (4 s to a simulator, 15–23 s to a
+phone), while one `_ivarDescription` on a process that is already stopped costs about 20 ms and one
+layout report about 10 ms, so reading them per click paid the expensive half over and over. 96 views
+of a test app come back as 2.9 MB of detail in 6 s, once. The pass is bounded (400 views, 6 s) and
+says how many it reached — `已缓存 N 个视图` in the tree's stats, with `（部分）` when it stopped
+early — so a view the bounds left out is still read on demand when it is opened, and `刷新` re-reads
+the picked view even when it is cached:
 
-- **属性** — everything the app says about the object, grouped by the class that declares it, read in
-  one stop with `_ivarDescription`. `⌘L`-style rows that can be written get an editor chosen from the
+- **属性** — everything the app says about the object, grouped by the class that declares it, read
+  with `_ivarDescription`. `⌘L`-style rows that can be written get an editor chosen from the
   declared type: a switch for a `BOOL`, a field for a number, a text field for a string, a colour well
   for a `UIColor`, four boxes for a `CGRect`. The edit goes to the app as `setValue:forKey:` and the
   pane then shows **what the app reports**, so a value its own layout code writes back says so

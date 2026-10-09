@@ -127,7 +127,7 @@ equal(client.inject, ['slots'], 'only slots is a hard dependency, so a missing d
  * the fallback first and the dock second, so every mount exercises the handover
  * `syncSeats` exists for. `seatOrder` reorders them for the other arrival order.
  */
-function mount({ dock, sidebarRight, seatOrder } = {}) {
+function mount({ dock, sidebarRight, seatOrder, services } = {}) {
   const components = new Map()
   // Keyed seats reach this map by `id` or by `key` — and two seats of the plugin can
   // share a key (a tab type's body and its chip are the same id in two slots), so the
@@ -208,9 +208,10 @@ function mount({ dock, sidebarRight, seatOrder } = {}) {
       effects.push(dispose)
       return () => {}
     },
-    inject(services, callback) {
-      pending.push({ services, callback })
+    inject(names, callback) {
+      pending.push({ services: names, callback })
     },
+    get(name) { return services?.[name] },
   }
 
   client.apply(ctx)
@@ -2660,6 +2661,35 @@ section('the LLDB drawer')
     // A second branch, so a filter has something to drop.
     { depth: 1, className: 'UILabel', address: '0x4', frame: { x: 0, y: 200, width: 40, height: 20 }, text: 'other', hidden: true, attributes: {} },
   ]
+  // One view's attribute list and layout report, in the shape the host sends them. Defined once:
+  // the tree read brings them, and the per-view ops answer with the same thing, so a pane drawn from
+  // the cache and a pane drawn from a fresh read are the same pane.
+  const ATTR_GROUPS = [
+    {
+      name: 'UILabel',
+      rows: [
+        { name: '_text', type: 'NSString*', value: '"row 0"', depth: 0, edit: { kind: 'text', value: 'row 0', key: 'text' } },
+        { name: '_numberOfLines', type: 'long', value: '1', depth: 0, edit: { kind: 'number', value: '1', key: 'numberOfLines' } },
+      ],
+    },
+    {
+      name: 'UIView',
+      rows: [
+        { name: '_backgroundColor', type: 'UIColor*', value: '<UIDeviceRGBColor: 0x1; red = 1; green = 0; blue = 0; alpha = 0.5>', depth: 0, edit: { kind: 'color', value: 'rgba(255, 0, 0, 0.5)', key: 'backgroundColor' } },
+        { name: '_viewFlags', type: 'struct ?', value: '{', depth: 0, edit: { kind: 'none' } },
+        { name: 'bounds', type: 'struct CGRect', value: '{{0, 0}, {200, 20.33}}', depth: 1, edit: { kind: 'none' } },
+      ],
+    },
+  ]
+  const LAYOUT_REPORT = {
+    masked: false,
+    ambiguous: true,
+    intrinsic: { width: 42.66666666666666, height: 20.33333333333333 },
+    hugging: [250, 250],
+    resistance: [750, 750],
+    own: ['<NSLayoutConstraint:0x6000001 UILabel:0x2.width == 200   (active)>'],
+    referencing: ['<NSLayoutConstraint:0x6000002 H:|-(12)-[UILabel:0x2]   (active)>'],
+  }
   const TREE = {
     ok: true,
     reused: true,
@@ -2674,12 +2704,26 @@ section('the LLDB drawer')
     // Lookin.app is installed on this host, so the slot offers to open the file in it.
     lookinAvailable: true,
     session: { state: 'stopped', detail: '', pid: 13290, target: 'HIDProbe', attached: { kind: 'device', id: 'u', name: 'HIDProbe', mode: 'attach' }, lineCount: 3, firstAvailable: 1 },
+    // What the tree read pulls in the same stop: the attributes and the layout of the views it
+    // could reach. `0x4` is deliberately absent — it is the view the bounds left out, and the one
+    // that proves the on-demand path still works.
+    details: {
+      '0x1': { className: 'UIWindow', attributes: 5, groups: ATTR_GROUPS, layout: LAYOUT_REPORT },
+      '0x2': { className: 'UIStackView', attributes: 5, groups: ATTR_GROUPS, layout: LAYOUT_REPORT },
+      '0x3': { className: 'Example.StatusLight', attributes: 5, groups: ATTR_GROUPS, layout: LAYOUT_REPORT },
+    },
+    detailsViews: 3,
+    detailsAttributes: 4,
+    detailsLayouts: 4,
+    detailsCapped: true,
+    detailsMs: 87,
   }
   let sessionActive = false
   let fullJob = null
   // What the inspector asked for, and the edits it sent: the ops are the whole contract between the
   // panel and the app, so the tests read them the way the host would.
   const attributeReads = []
+  const layoutReads = []
   const edits = []
   let editSticks = true
   let history = [
@@ -2738,40 +2782,17 @@ section('the LLDB drawer')
           attributes: 5,
           note: '',
           session: sessionAt(sessionState),
-          groups: [
-            {
-              name: 'UILabel',
-              rows: [
-                { name: '_text', type: 'NSString*', value: '"row 0"', depth: 0, edit: { kind: 'text', value: 'row 0', key: 'text' } },
-                { name: '_numberOfLines', type: 'long', value: '1', depth: 0, edit: { kind: 'number', value: 1, key: 'numberOfLines' } },
-              ],
-            },
-            {
-              name: 'UIView',
-              rows: [
-                { name: '_backgroundColor', type: 'UIColor*', value: '<UIDeviceRGBColor: 0x1; red = 1; green = 0.5; blue = 0; alpha = 1>', depth: 0, edit: { kind: 'color', value: '#ff8000ff', key: 'backgroundColor' } },
-                { name: '_viewFlags', type: 'struct ?', value: '{', depth: 0, edit: { kind: 'none', value: null } },
-                { name: 'bounds', type: 'struct CGRect', value: '{{0, 0}, {200, 20}}', depth: 1, edit: { kind: 'none', value: null } },
-              ],
-            },
-          ],
+          groups: ATTR_GROUPS,
         }
       }
       if (body.op === 'constraints') {
+        layoutReads.push({ address: body.address })
         return {
           ok: true,
           address: body.address,
           note: '',
           session: sessionAt(sessionState),
-          layout: {
-            masked: false,
-            ambiguous: true,
-            intrinsic: { width: 42.66666666666666, height: 20.33333333333333 },
-            hugging: [250, 250],
-            resistance: [750, 750],
-            own: ['<NSLayoutConstraint:0x6000001 UILabel:0x2.width == 200   (active)>'],
-            referencing: ['<NSLayoutConstraint:0x6000002 H:|-(12)-[UILabel:0x2]   (active)>'],
-          },
+          layout: LAYOUT_REPORT,
         }
       }
       if (body.op === 'edit') {
@@ -2806,7 +2827,25 @@ section('the LLDB drawer')
     },
   })
 
-  const instance = mount({})
+  // The chat composer, as the conversation's input face presents it: a draft to read and replace.
+  const composer = { draft: 'why is this too tall?', scopes: [] }
+  const chatScope = { id: 'scope-lldb-drawer' }
+  const services = {
+    sessions: { scope: (id) => (id === 'lldb-drawer' ? chatScope : undefined) },
+    conversation: {
+      input: {
+        for(scope) {
+          composer.scopes.push(scope)
+          return {
+            get snapshot() { return { draft: composer.draft } },
+            setDraft(text) { composer.draft = text },
+            focus() { composer.focused = true },
+          }
+        },
+      },
+    },
+  }
+  const instance = mount({ services })
   const overlay = instance.components.get('dsh-xcodebuild-panel')
   const toggle = instance.components.get('dsh-xcodebuild-toggle')
   const { container } = await render([
@@ -3042,9 +3081,13 @@ section('the LLDB drawer')
   // Opening a view reads its attributes at once — the pane is the point of picking a row — and the
   // list is everything the app says, grouped by the class that declares it, the way Lookin groups
   // it. The readings and the edits are what the panel sends the app, so they are what is asserted.
-  check(attributeReads.some((read) => read.address === '0x2'), 'picking a view reads its attributes', JSON.stringify(attributeReads))
-  // The read is queued behind the selection's own round trip — `runLldb` runs one operation at a
-  // time — so it lands a tick after the click, exactly as it does against the real host.
+  // The tree read is where the attributes come from: Lookin's shape, and the measurement behind it
+  // (an attach costs seconds, a dump in an already-stopped process about 20 ms). Picking a view the
+  // read reached therefore asks the app for NOTHING, which is also what kept a click from reaching
+  // for a session it did not have.
+  const treeRead = calls.filter((call) => call.method === 'lldb' && call.body.op === 'view').at(-1)
+  equal(treeRead?.body.details, true, 'the tree read asks for every view\'s attributes and layout in the same stop')
+  equal(attributeReads.length, 0, 'and picking a view it reached asks the app nothing at all', JSON.stringify(attributeReads))
   await act(async () => { await new Promise((resolve) => setTimeout(resolve, 80)) })
   // The preview was the pane on screen from the check above; attributes are the default and the one
   // this half is about.
@@ -3110,8 +3153,7 @@ section('the LLDB drawer')
     propsOf(layoutTab).onClick()
     await new Promise((resolve) => setTimeout(resolve, 40))
   })
-  check(calls.some((call) => call.method === 'lldb' && call.body.op === 'constraints' && call.body.address === '0x2'),
-    'the layout pane asks the app for the report when it is first opened')
+  equal(layoutReads.length, 0, 'the layout pane draws the report the tree read brought, without asking', JSON.stringify(layoutReads))
   const badges = Array.from(container.querySelectorAll('.xcb-lldb-badge-box')).map((node) => node.textContent)
   check(badges.some((text) => text.includes('Ambiguous') && text.includes('YES')),
     'an ambiguous layout is said to be ambiguous', badges.join(' | '))
@@ -3132,6 +3174,34 @@ section('the LLDB drawer')
   equal(calls.filter((call) => call.method === 'lldb' && call.body.op === 'node').at(-1)?.body.address, '0x2',
     'and clicking it selects that view')
 
+  // What the tree read brought, and what it did not: the panel says how much it holds, and a view
+  // the bounds left out is still read on demand — the two halves of "cached, then refresh".
+  check(container.querySelector('.xcb-lldb-stats').textContent.includes('已缓存 3 个视图（部分）'),
+    'the tree says how many views it already holds, and that it stopped early',
+    container.querySelector('.xcb-lldb-stats').textContent)
+  {
+    const readsBefore = attributeReads.length
+    const layoutsBefore = layoutReads.length
+    const other = Array.from(container.querySelectorAll('.xcb-lldb-row')).find((node) => node.textContent.includes('other'))
+    await act(async () => {
+      propsOf(other).onClick()
+      await new Promise((resolve) => setTimeout(resolve, 80))
+    })
+    equal(attributeReads.slice(readsBefore).map((read) => read.address).join(','), '0x4',
+      'a view the read did not reach is asked for when it is opened', JSON.stringify(attributeReads))
+    await act(async () => {
+      propsOf(Array.from(insp.querySelectorAll('.xcb-lldb-tab')).find((node) => node.textContent === '布局')).onClick()
+      await new Promise((resolve) => setTimeout(resolve, 60))
+    })
+    equal(layoutReads.slice(layoutsBefore).map((read) => read.address).join(','), '0x4',
+      'and so is its layout, since the tree read had none for it', JSON.stringify(layoutReads))
+    // Back to the view the rest of this flow is about, so what follows reads as it did before.
+    await act(async () => {
+      propsOf(Array.from(container.querySelectorAll('.xcb-lldb-row')).find((node) => node.textContent.includes('UIStackView'))).onClick()
+      await new Promise((resolve) => setTimeout(resolve, 80))
+    })
+  }
+
   // -- the drawer fills the panel ------------------------------------------
   //
   // The drawer is a strip at the bottom of the panel; a hierarchy beside an attribute list beside a
@@ -3143,8 +3213,35 @@ section('the LLDB drawer')
   check(container.querySelector('.xcb-lldb.max') !== null, 'and clicking it gives the debugger the whole panel')
   check(container.querySelector('.xcb-lldb-tree') !== null && container.querySelector('.xcb-lldb-log') !== null,
     'with the tree and the console still there')
+  check(container.querySelector('.xcb-log') === null && container.querySelector('.xcb-status') === null
+    && Array.from(container.querySelectorAll('.xcb-btn')).every((node) => node.textContent !== 'Build & Run'),
+    'and covers the build rows, the status and the build log rather than sitting below them')
   await act(async () => { propsOf(container.querySelector('.xcb-lldb-max')).onClick() })
   check(container.querySelector('.xcb-lldb.max') === null, 'clicking it again gives the panel back')
+  check(container.querySelector('.xcb-log') !== null && container.querySelector('.xcb-status') !== null,
+    'with the build log and status where they were')
+
+  // -- add to chat ---------------------------------------------------------
+  //
+  // A right-click on a row offers to put that view into the chat, described so the AI can tell
+  // which one is meant: class and address, the path from the window, what it shows, its frame,
+  // its parent and children.
+  const lightRow = Array.from(container.querySelectorAll('.xcb-lldb-row')).find((node) => node.textContent.includes('StatusLight'))
+  await act(async () => {
+    propsOf(lightRow).onContextMenu({ preventDefault() {}, clientX: 40, clientY: 40 })
+    await new Promise((resolve) => setTimeout(resolve, 40))
+  })
+  const addItem = Array.from(container.querySelectorAll('.xcb-lldb-rowmenu .xcb-ctxmenu-item')).find((node) => node.textContent === '添到聊天')
+  check(addItem !== undefined, 'right-clicking a view row offers 添到聊天')
+  await act(async () => { propsOf(addItem).onClick() })
+  equal(composer.scopes[0], chatScope, 'into the composer of the session this panel belongs to')
+  check(composer.draft.startsWith('why is this too tall?\n\n'), 'after what was already typed, not over it', composer.draft.slice(0, 40))
+  check(composer.draft.includes('Example.StatusLight 0x3'), 'naming the class and the exact address', composer.draft)
+  check(composer.draft.includes('UIWindow > UIStackView > Example.StatusLight'), 'with the path from the window down', composer.draft)
+  check(composer.draft.includes('"● GC 键盘"') && composer.draft.includes('0,0 116.7x44'), 'with what it shows and where', composer.draft)
+  check(composer.draft.includes('parent: UIStackView 0x2'), 'and its parent', composer.draft)
+  check(composer.draft.includes('HIDProbe'), 'and which app it is in', composer.draft)
+  check(container.querySelector('.xcb-lldb-rowmenu') === null, 'the menu closes once used')
 
   // -- focus ---------------------------------------------------------------
   const stackRow = Array.from(container.querySelectorAll('.xcb-lldb-row')).find((node) => node.textContent.includes('UIStackView'))
@@ -3330,10 +3427,13 @@ section('the LLDB drawer')
     // short box, scrolled up away from the end.
     Object.defineProperty(log, 'scrollHeight', { configurable: true, get: () => 1000 })
     Object.defineProperty(log, 'clientHeight', { configurable: true, get: () => 100 })
-    check(container.querySelector('.xcb-lldb-jump') === null, 'at the tail there is no jump button: it is already following')
+    // `.xcb-jump` and not `.xcb-lldb-jump`: the latter is also the class of the layout pane's
+    // "select the view this constraint names" buttons, which are in this same container and would
+    // answer for the transcript's own button.
+    check(container.querySelector('.xcb-jump') === null, 'at the tail there is no jump button: it is already following')
     log.scrollTop = 300
     await act(async () => { propsOf(log).onScroll({ currentTarget: log }) })
-    const jump = container.querySelector('.xcb-lldb-jump')
+    const jump = container.querySelector('.xcb-jump')
     check(jump !== null, 'scrolled up, the transcript stops following and offers the way back')
     check(jump !== null && jump.className.includes('xcb-jump'),
       'as the build log\'s floating button, not a button of its own', jump === null ? '(none)' : jump.className)
@@ -3354,7 +3454,7 @@ section('the LLDB drawer')
     equal(jump?.textContent, '↓ Latest', 'which says it goes to the latest output')
     await act(async () => { propsOf(jump).onClick() })
     equal(log.scrollTop, 1000, 'clicking it scrolls to the newest line')
-    check(container.querySelector('.xcb-lldb-jump') === null, 'and following resumes, so the button goes away')
+    check(container.querySelector('.xcb-jump') === null, 'and following resumes, so the button goes away')
 
     // Right-click: Select All, Copy, and Clear.
     await act(async () => { propsOf(log).onContextMenu({ preventDefault() {}, clientX: 40, clientY: 30, currentTarget: log }) })
