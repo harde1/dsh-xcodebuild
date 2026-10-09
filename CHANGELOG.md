@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.4.8
+
+### Changed
+
+- **Opening the LLDB drawer after a Build & Run mounts the launched app at once.** Before, the attach
+  (the slow part, and the part that fails) only happened behind the first View Hierarchy, against a
+  pid that could be gone by then.
+  - The app is left running.
+  - This happens once per launch. A mount that failed says why in the drawer and is not retried in a
+    loop.
+
+### Fixed
+
+- **The pid is looked up on the device before every attach**, instead of being trusted from the run
+  or the Apps list.
+  - Such a pid goes stale as soon as the app restarts. lldb attaching to a pid that is gone answers
+    only `Process must be launched.` (measured: 704 asked for while 754 was running).
+  - A retry happens only when the device names a different pid, and uses a fresh lldb: the failed
+    one is left `exited` and refuses every command.
+
 ## 0.4.7
 
 ### Added

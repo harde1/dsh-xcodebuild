@@ -3243,6 +3243,7 @@ section('the LLDB drawer')
 section('a Build & Run mounts the app it launched')
 {
   let runStatus = 'running'
+  let runMounted = false
   const calls = serve({
     state: () => ({ workspace: '/tmp', activeRunId: runStatus === 'running' ? 'run-1' : null, runs: [] }),
     doctor: () => ({ tools: [], missingRequired: [] }),
@@ -3253,7 +3254,13 @@ section('a Build & Run mounts the app it launched')
       artifact: { appPath: '/tmp/Build/HIDProbe.app', bundleId: 'com.example.HIDProbe', pid: 13290, attached: true },
     }),
     stop: () => { runStatus = 'cancelled'; return { ok: true } },
-    lldb: () => ({ active: false, session: null, next: 0, firstAvailable: 1, lines: [] }),
+    lldb: (body) => {
+      if (body.op === 'attach') { runMounted = true; return { ok: true, note: '', continued: true, session: MOUNTED } }
+      if (body.op === 'dispose') { runMounted = false; return { ok: true, note: 'session ended', session: null } }
+      return runMounted
+        ? { active: true, session: MOUNTED, next: 1, firstAvailable: 1, lines: [] }
+        : { active: false, session: null, next: 0, firstAvailable: 1, lines: [] }
+    },
   })
   const instance = mount({})
   const { container } = await render([
@@ -3267,6 +3274,18 @@ section('a Build & Run mounts the app it launched')
   await act(async () => {
     container.querySelector('.xcb-lldb-toggle').dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
   })
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 80)) })
+  // Panels mounted by earlier sections are still alive and share this fake host, so each of them
+  // may attach once too; what matters is that it happens now, and never again once mounted.
+  const mine = (call) => call.method === 'lldb' && call.body.op === 'attach'
+  const autoAttach = calls.filter(mine)
+  check(autoAttach.length >= 1, 'opening the drawer attaches to the launched app at once, not on the first read')
+  equal(autoAttach[0]?.body.process, 'HIDProbe', 'by the process the run launched')
+  equal(autoAttach[0]?.body.continue, true, 'and leaves it running')
+  const settled = calls.filter(mine).length
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 3000)) })
+  equal(calls.filter(mine).length, settled,
+    'and only once: the polls that follow do not attach again')
   check(buttonNamed(container, 'Apps') === undefined, 'with the app the run launched, there is nothing to pick: no Apps')
   check(buttonNamed(container, 'View Hierarchy') !== undefined, 'and View Hierarchy reads that app')
 
