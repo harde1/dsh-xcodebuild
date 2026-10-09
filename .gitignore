@@ -16,3 +16,6 @@ node_modules/
 # credentials file used to publish. Ignored by the repository rather than by a
 # local exclude, so a publish token cannot be committed by anyone, on any clone.
 .analysis/
+
+# A local checkout of the Lookin source, kept beside the plugin for reference. Not part of it.
+docs/Lookin-Develop/
