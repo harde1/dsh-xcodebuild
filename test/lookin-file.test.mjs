@@ -13,6 +13,8 @@ import {
   absoluteFrames,
   buildLookinFile,
   classChainExpression,
+  classChainsExpression,
+  parseChainsReport,
   lookinArchiveName,
   parseClassChain,
   staleLookinFiles,
@@ -248,6 +250,19 @@ section('the class chain is probed once per class')
   eq(parseClassChain(''), null, 'an empty answer is no answer')
   eq(parseClassChain('lol;;error: something'), null, 'and so is junk, so a failed probe cannot become a chain')
   eq(parseClassChain('UIView,UIView'), null, 'a chain that repeats itself is rejected')
+
+  // One expression for every class and the screen: the app is stopped while it answers.
+  const batch = classChainsExpression(['UILabel', 'Mod.Cell', 'Evil"Class', 'bad name'])
+  check(batch.startsWith('po (NSString *)(') && !batch.includes('\n'), 'the batch is one po line')
+  check(!/stringWithFormat|arrayWithObjects/.test(batch), 'with no variadic call, which LLDB\'s parser refuses')
+  check(batch.includes('@"UILabel,Mod.Cell,EvilClass"'), 'names travel as one literal, quotes stripped and junk names dropped')
+  check(!/\bNSArray \*names\b/.test(batch) && batch.includes('xcbNames'), 'locals are prefixed: a plain `names` collided with the app\'s own symbol')
+  check(classChainsExpression([]).includes('[NSArray array]'), 'no unknown classes still asks for the screen')
+  const report = parseChainsReport('SCREEN 402 874 3\nCHAIN UILabel,UIView,UIResponder,NSObject\nCHAIN \nCHAIN UIView,UIResponder,NSObject', ['UILabel', 'Gone', 'UIView', 'bad name'])
+  eq(report.screen, { width: 402, height: 874, scale: 3 }, 'the screen is read from the report')
+  eq(report.chains, { UILabel: ['UILabel', 'UIView', 'UIResponder', 'NSObject'], Gone: null, UIView: ['UIView', 'UIResponder', 'NSObject'] },
+    'each answer belongs to the name asked in its place; a class the runtime lacks is null')
+  eq(parseChainsReport("error: use of undeclared identifier 'x'", ['UILabel']), null, 'an error is no report, so the caller falls back')
 }
 
 section('exports are named and pruned')

@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.4.9
+
+### Changed
+
+- **View Hierarchy stops the app for as short a time as it can.**
+  - The app is now held for exactly two expressions: the tree, and one batched question for the class
+    chains and the screen size. It runs again before the Lookin file is built, converted and saved.
+  - Before, it stayed stopped through up to 33 more round trips (one per class, three for the
+    screen), and then through the file writing.
+  - Classes already known from an earlier read are not asked again, so a second read of the same
+    screen asks for the screen size alone.
+  - If the batched expression is not understood, the read falls back to the per-class questions.
+  - Measured against a live app on a simulator (10 classes plus the screen): 0.06–0.20 s batched,
+    against 0.38 s one by one. A physical device, where each round trip costs more, gains more.
+  - An empty tree also lets the app go at once.
+  - The result reports `stoppedMs`, how long the app was held.
+
 ## 0.4.8
 
 ### Changed
