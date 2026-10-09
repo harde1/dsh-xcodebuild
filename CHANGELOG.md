@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.4.12
+
+### Fixed
+
+- **View Hierarchy reuses the session that is already attached, instead of attaching again.**
+  - A phone has two names, and they never matched:
+    - the session keeps the CoreDevice identifier, the one lldb accepts (`B7485956-…`);
+    - every later request arrives with the destination's hardware UDID (`00008110-…`).
+  - Compared as plain strings, every read threw a working session away and attached from scratch,
+    15–23 s on 蜜语-Dev each time.
+  - The two names learned when the attach resolved them now count as the same phone.
+- **No more stream of `Process N resuming`.**
+  - Mounting, every read and an Apps pick each sent `continue` to "make sure" the app runs, even
+    when it already did.
+  - On a device lldb answers each one with another `resuming` line, or `Process must be launched.`
+    while attaching.
+  - `resume()` now continues only a stopped process.
+
 ## 0.4.11
 
 ### Fixed

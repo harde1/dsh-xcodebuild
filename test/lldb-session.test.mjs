@@ -489,7 +489,7 @@ section('an empty stop state is still refused with a reason, never as an empty h
 
 section('resume is fire-and-forget, so the interrupt that follows it is not stuck behind it')
 {
-  const { session } = sessionWith((line, c) => {
+  const { session, child: child0 } = sessionWith((line, c) => {
     if (line === 'continue') {
       // Like the real thing: the interpreter says nothing while the inferior runs.
       c.block()
@@ -500,12 +500,35 @@ section('resume is fire-and-forget, so the interrupt that follows it is not stuc
     }
   })
   session.start()
+  await session.send('process status')
+  child0.say('Process 12 stopped')
+  await sleep(10)
   check(session.resume() === true, 'resume writes the command')
   await sleep(20)
   eq(session.state, 'running', 'and the process is running')
   const stopped = await session.interrupt()
   eq(stopped.ok, true, 'interrupt still gets through: it is not queued behind a sentinel that cannot arrive')
   eq(session.state, 'stopped', 'and the process is stopped again')
+}
+
+section('resume continues a STOPPED process only')
+{
+  // On a device every `continue` to an app that already runs prints another `Process N resuming`; a
+  // mount, a read and an Apps pick each "made sure" and the drawer filled with them.
+  const { session, child } = sessionWith((line, c) => { if (line === 'continue') c.say('Process 5 resuming') })
+  session.start()
+  await session.send('process status')
+  child.say('Process 5 is running.')
+  await sleep(10)
+  check(session.resume() === true, 'asking a running app to run is not a failure')
+  await sleep(20)
+  check(!child.written.includes('continue'), 'but nothing is sent', child.written.join(' | '))
+  child.say('Process 5 stopped')
+  await sleep(10)
+  session.resume()
+  session.resume()
+  await sleep(20)
+  eq(child.written.filter((line) => line === 'continue').length, 1, 'a stopped app is continued once, however often it is asked')
 }
 
 section('polling with the summary\'s cursor never returns a line twice')

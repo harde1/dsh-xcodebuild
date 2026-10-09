@@ -1,6 +1,6 @@
 // The silent failure this prevents: `device select` accepts an identifier lldb does not know, selects
 // nothing, and the attach that follows waits forever.
-import { connectedDevices, describeConnectedDevices, parseDeviceList, resolveDeviceId } from '../lib/lldb-devices.js'
+import { connectedDevices, describeConnectedDevices, parseDeviceList, resolveDeviceId, sameDeviceId } from '../lib/lldb-devices.js'
 
 let passed = 0, failed = 0
 const section = (name) => console.log(`\n# ${name}`)
@@ -60,3 +60,16 @@ eq(describeConnectedDevices([]), 'lldb lists no connected device at all', 'and a
 console.log(`\n${passed}/${passed + failed} checks passed`)
 if (failed > 0) process.exit(1)
 console.log('lldb devices OK')
+
+{
+  // The session keeps the CoreDevice id lldb accepted; the next read arrives with the hardware UDID.
+  const aliases = new Map([
+    ['00008110-000078242ebb801e', 'b7485956-fd06-57e9-acfd-d6d1e41ef111'],
+    ['b7485956-fd06-57e9-acfd-d6d1e41ef111', '00008110-000078242ebb801e'],
+  ])
+  eq(sameDeviceId('B7485956-FD06-57E9-ACFD-D6D1E41EF111', '00008110-000078242EBB801E', aliases), true,
+    'the phone\'s two names are one phone, so a read reuses the session instead of attaching again')
+  eq(sameDeviceId('00008110-000078242EBB801E', 'B7485956-FD06-57E9-ACFD-D6D1E41EF111', aliases), true, 'either way round')
+  eq(sameDeviceId('B7485956-FD06-57E9-ACFD-D6D1E41EF111', '00008030-0000000000000000', aliases), false, 'another phone is not')
+  eq(sameDeviceId('', '', aliases), false, 'and no id matches nothing')
+}
