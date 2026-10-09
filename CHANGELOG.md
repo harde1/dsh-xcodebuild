@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.5.2
+
+### Added
+
+- **↑/↓ in the LLDB prompt walks the command history.**
+  - The history holds every command the drawer sent: typed ones, and the ones a picked view's quick
+    buttons sent. A typed `$v` appears already expanded, so a recalled command still names its view.
+  - ↑ starts at the newest command. ↓ past the newest puts back what was being typed.
+  - Typing leaves the walk.
+  - The history keeps the last 100 commands; a command repeated back to back is kept once.
+
 ## 0.5.1
 
 ### Added

@@ -2963,6 +2963,24 @@ section('the LLDB drawer')
     const treeTab = Array.from(container.querySelectorAll('.xcb-lldb-tab')).find((node) => /Tree/.test(node.textContent))
     if (treeTab !== undefined) await act(async () => { propsOf(treeTab).onClick() })
 
+    // ↑/↓ in the prompt walks every command the drawer sent — typed, and sent by a view's buttons —
+    // newest first, and ↓ past the newest puts back what was being typed.
+    {
+      const prompt = container.querySelector('.xcb-lldb-cmd')
+      await act(async () => { propsOf(prompt).onChange({ target: { value: 'half typed' } }) })
+      const press = async (key) => act(async () => { propsOf(container.querySelector('.xcb-lldb-cmd')).onKeyDown({ key, preventDefault() {} }) })
+      const value = () => container.querySelector('.xcb-lldb-cmd').value
+      await press('ArrowUp')
+      equal(value(), 'po [((UIStackView *)0x2) alpha]', '↑ brings back the last typed command, with $v as it was sent')
+      await press('ArrowUp')
+      equal(value(), 'p (CGRect)[((UIStackView *)0x2) frame]', 'and ↑ again the one a quick button sent')
+      await press('ArrowDown')
+      equal(value(), 'po [((UIStackView *)0x2) alpha]', '↓ walks forward')
+      await press('ArrowDown')
+      equal(value(), 'half typed', 'and past the newest restores the draft')
+      await act(async () => { propsOf(container.querySelector('.xcb-lldb-cmd')).onChange({ target: { value: '' } }) })
+    }
+
     // Clicking the picked row again lets go of it.
     const nodeCalls = calls.filter((call) => call.method === 'lldb' && call.body.op === 'node').length
     await act(async () => {
