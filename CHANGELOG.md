@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.5.1
+
+### Added
+
+- **A picked view is the command bar's object.**
+  - A chip above the prompt names the selected view (class and address). Its × deselects it.
+  - One-click commands act on the view: `po`, `frame`, `superview`, `subviews`, `controller`, `tree`
+    (`recursiveDescription`), `hide` (toggles hidden and redraws), and `flash` (a red border to show
+    where it is).
+  - Each button sends an ordinary lldb command, shown in the transcript as typed.
+  - In a typed command `$v` stands for the view, e.g. `po [$v alpha]`.
+  - A Swift class is addressed through `UIView *`.
+- **Clicking the picked row again deselects it.** This closes its details and lets the command bar go,
+  without a round trip to the host.
+
+### Fixed
+
+- **Two reads in a row no longer wait out a 15 s timeout.**
+  - An interrupt sent before lldb had confirmed the previous `continue` fell into the gap and never
+    stopped the app. On the simulator, every second quick command in a row timed out.
+  - The session now treats the app as running as soon as it sends `continue`. A read that follows
+    waits for lldb's `resuming` before it interrupts.
+  - Ten quick commands in a row, live on the simulator: each paused the app for 215–304 ms.
+
 ## 0.5.0
 
 ### Changed

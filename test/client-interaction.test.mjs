@@ -2934,6 +2934,60 @@ section('the LLDB drawer')
   equal(detail.querySelector('.xcb-lldb-shot img').getAttribute('src'), 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUg==',
     'the group toggle shows the control with its subtree instead')
 
+  // A picked view becomes the command bar's object: a chip names it, one-click commands act on it,
+  // and `$v` in a typed command stands for it.
+  {
+    const chip = container.querySelector('.xcb-lldb-chip')
+    check(chip !== null && chip.textContent.includes('UIStackView') && chip.textContent.includes('0x2'),
+      'the picked view is named above the prompt', chip?.textContent)
+    const quick = Array.from(container.querySelectorAll('.xcb-lldb-quick')).map((node) => node.textContent)
+    check(['po', 'frame', 'superview', 'subviews', 'controller', 'tree', 'hide', 'flash'].every((name) => quick.includes(name)),
+      'with one-click commands for it', quick.join(','))
+    const sentBefore = calls.filter((call) => call.method === 'lldb' && call.body.op === 'command').length
+    await act(async () => {
+      propsOf(Array.from(container.querySelectorAll('.xcb-lldb-quick')).find((node) => node.textContent === 'frame')).onClick()
+      await new Promise((resolve) => setTimeout(resolve, 60))
+    })
+    const quickSent = calls.filter((call) => call.method === 'lldb' && call.body.op === 'command').slice(sentBefore)
+    equal(quickSent[0]?.body.command, 'p (CGRect)[((UIStackView *)0x2) frame]', 'a quick command is an ordinary lldb command aimed at that view')
+    const box = container.querySelector('.xcb-lldb-cmd')
+    check(/\$v/.test(box.getAttribute('placeholder') ?? ''), 'the prompt says $v is the view', box.getAttribute('placeholder'))
+    await act(async () => { propsOf(box).onChange({ target: { value: 'po [$v alpha]' } }) })
+    await act(async () => {
+      propsOf(box).onKeyDown({ key: 'Enter' })
+      await new Promise((resolve) => setTimeout(resolve, 60))
+    })
+    const typed = calls.filter((call) => call.method === 'lldb' && call.body.op === 'command').at(-1)
+    equal(typed?.body.command, 'po [((UIStackView *)0x2) alpha]', 'and $v in a typed command becomes that view')
+    // A command switches the drawer to its log; the tree is where the rows are.
+    const treeTab = Array.from(container.querySelectorAll('.xcb-lldb-tab')).find((node) => /Tree/.test(node.textContent))
+    if (treeTab !== undefined) await act(async () => { propsOf(treeTab).onClick() })
+
+    // Clicking the picked row again lets go of it.
+    const nodeCalls = calls.filter((call) => call.method === 'lldb' && call.body.op === 'node').length
+    await act(async () => {
+      propsOf(container.querySelector('.xcb-lldb-row.picked')).onClick()
+      await new Promise((resolve) => setTimeout(resolve, 30))
+    })
+    equal(container.querySelector('.xcb-lldb-row.picked'), null, 'a second click on the picked row deselects it')
+    equal(container.querySelector('.xcb-lldb-detail'), null, 'and closes its details')
+    equal(container.querySelector('.xcb-lldb-chip'), null, 'and the command bar no longer aims at it')
+    equal(calls.filter((call) => call.method === 'lldb' && call.body.op === 'node').length, nodeCalls, 'without asking the host again')
+
+    // Picked again, the chip's × lets go of it too.
+    await act(async () => {
+      propsOf(container.querySelectorAll('.xcb-lldb-row')[1]).onClick()
+      await new Promise((resolve) => setTimeout(resolve, 60))
+    })
+    check(container.querySelector('.xcb-lldb-chip') !== null, 'picking it again brings the chip back')
+    await act(async () => { propsOf(container.querySelector('.xcb-lldb-chip-x')).onClick() })
+    equal(container.querySelector('.xcb-lldb-row.picked'), null, 'and its × deselects it')
+    await act(async () => {
+      propsOf(container.querySelectorAll('.xcb-lldb-row')[1]).onClick()
+      await new Promise((resolve) => setTimeout(resolve, 60))
+    })
+  }
+
   // The host that has no Lookin.app must not offer a button claiming to be Lookin: the same slot
   // offers the file itself, and says why in its title. Re-read with the fixture flipped, which is
   // what a host on a machine without Lookin answers from the start.

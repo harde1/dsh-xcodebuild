@@ -583,6 +583,25 @@ section('a read in a running app is one short stop: interrupt, work, continue')
   eq(child.written.filter((line) => line === 'continue').length, before, 'no continue is sent')
 }
 
+section('two reads back to back each take their own stop')
+{
+  // lldb says `resuming` a moment after `continue`; a read in that gap used to think the app was
+  // still stopped and skip its interrupt. Here `resuming` is late on purpose.
+  const { session, child } = sessionWith((line, c) => {
+    if (line === 'process interrupt') setTimeout(() => c.say('Process 4 stopped'), 20)
+    if (line === 'continue') setTimeout(() => c.say('Process 4 resuming'), 80)
+    if (line === 'po 1') c.say('1')
+  })
+  session.start()
+  await session.send('process status')
+  child.say('Process 4 is running.')
+  await sleep(10)
+  await session.pauseFor(() => session.evaluate('po 1'))
+  const second = await session.pauseFor(() => session.evaluate('po 1'))
+  check(second.ok === true, 'the second read works', JSON.stringify(second) + ' | ' + child.written.join(' / '))
+  eq(child.written.filter((line) => line === 'process interrupt').length, 2, 'because it interrupted again rather than trusting a stale `stopped`')
+}
+
 section('the expression engine is warmed inside the attach\'s own stop')
 {
   const { session, child } = sessionWith((line, c) => {
