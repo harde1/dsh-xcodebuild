@@ -16,8 +16,9 @@
   sends are unaffected. The render now takes its geometry out of `NSValue` into a `double[4]`, draws
   into a `CGBitmapContextCreate` context at a pixel size computed from those doubles, and reads the
   image back with `CGBitmapContextCreateImage` — verified live: 96 views walked, the key window
-  rendered 402×874. Every full export until now had silently fallen back to cropping a screen
-  capture, because the render returned no images at all.
+  rendered 402×874. Every full export until now had fallen back to cropping a screen capture — the
+  job's own note said `rendered from a screen capture`, but what it could not say was that the reason
+  was a render expression that never compiled.
 - **The 2D / 3D canvas draws the window's own picture under the boxes**, the way Lookin's preview
   does: one short stop, one view (`windows firstObject`), rendered at scale 1, fetched by the new
   `op=window` and drawn in the canvas's own coordinates — the tree's root frame — so it zooms, turns
@@ -55,10 +56,10 @@
   asserted — no `CGSize`/`CGRect`/`CGPoint` is ever named in the expression, no `NSValue` is
   constructed but only read, the context is a bitmap one at a pixel size, and the module imports sit
   immediately after the `po`.
-- `test/client-interaction.test.mjs` (591 checks, was 584): the backdrop is fetched by the tree read
+- `test/client-interaction.test.mjs` (594 checks, was 572): the backdrop is fetched by the tree read
   and drawn at the window's own size and URL, 截图 hides it, 刷新截图 reads it again, a re-render does
   not ask twice, and a box with room carries its class name.
-- `test/host-mount.test.mjs` (107 checks, was 103): `op=window` with nothing attached refuses with a
+- `test/host-mount.test.mjs` (111 checks): `op=window` with nothing attached refuses with a
   note and no image, and never describes a device with no name.
 
 ## 0.6.5
