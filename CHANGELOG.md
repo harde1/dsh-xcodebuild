@@ -1,5 +1,41 @@
 # Changelog
 
+## 0.6.4
+
+### Fixed
+
+- **Every attach printed a column of `error: Process must be launched.`** A device attach answers in
+  about a second and the stop that expressions need arrives 10–25 s later, and in that window the wait
+  asked for a stop once every 3 s — seven refusals on one attach, for a nudge that changed nothing,
+  because it is `device process attach` itself that sends the app SIGSTOP. `process interrupt` and
+  `process status` both require a process LLDB has already *launched*; while the attach is still
+  settling they are answered with that refusal and nothing else.
+  The wait now asks LLDB what its process is doing before it asks for anything, with
+  `script print("xcb-lldb-state=" + str(lldb.debugger.GetSelectedTarget().GetProcess().GetState()))`
+  — a `script` command is not a process command, so it is answered whatever the state is, including
+  `0` when there is no process at all (verified against a real lldb: no target answers `=0`, a live
+  attach answers `=5`, no error either way). An interrupt is sent only when that answer is `running`,
+  which is exactly the case it is for: an app that was ALREADY RUNNING when the attach happened is
+  not stopped by attaching, and `process interrupt` is the one command LLDB answers while the
+  inferior runs. When the state question itself cannot be answered in time — a command queued behind
+  a running inferior — the blunt ask is still made, because that is the case where waiting is the
+  failure (the 90-second silence measured on 蜜语-Dev).
+- The `process status` probes are kept: they are what report `stop reason = signal SIGSTOP` while an
+  attach is finishing, which is how a slow attach is told apart from a stuck one. Only the interrupt
+  is withheld.
+- These probes stay out of the panel's transcript, as before, and so do their answers — including the
+  new state answers, which are recognised by their own prefix and never shown.
+
+### Tests
+
+- `test/lldb-session.test.mjs`: a settling attach is scripted the way a device behaves — the stop
+  arrives 3.6 s after the attach, the state is `attaching` throughout — and asserts that not one
+  interrupt is sent, that no `Process must be launched.` reaches the transcript, that the state was
+  asked of LLDB at least twice, and that the `process status` probes still are. Removing the gate
+  fails it: three interrupts and no state question.
+- The scripted LLDB now answers the state question from a per-test process state, and `sessionWith`
+  forwards options meant for the child.
+
 ## 0.6.3
 
 ### Fixed

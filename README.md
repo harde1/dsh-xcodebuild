@@ -159,6 +159,15 @@ implementation is shaped around:
   `Process N stopped` and nudges with `process status`; it does **not** treat a thread's
   `stop reason = …` line as the process being stopped — LLDB prints one while it still reports the
   process as running, and trusting it made every expression fail.
+- **In that window, nothing but `script` may be asked.** `process status` and `process interrupt`
+  both need a process LLDB has already *launched*, so while the attach is settling they answer
+  `error: Process must be launched.` and nothing more; asking for a stop once every 3 s printed seven
+  of them on one attach, for a nudge that changed nothing, since the attach itself is what sends the
+  app SIGSTOP. The wait therefore reads the process state first —
+  `script print("xcb-lldb-state=" + str(lldb.debugger.GetSelectedTarget().GetProcess().GetState()))`,
+  which is answered whatever the state is, including `0` with no process at all — and interrupts only
+  a process LLDB reports as `running`: an app that was already running when the attach happened is the
+  one case where attaching does not stop it.
 - **A process must have run before it can be inspected.** Launching under the debugger
   (`mode=launch`) starts the app for real and attaches after it has had time to build its UI.
   With `devicectl --start-stopped` instead, the dump returned

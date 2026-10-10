@@ -61,11 +61,16 @@ function fakeLldb(options = {}) {
     say(`(lldb) ${line}`)
     const marker = /^script print\("(.+)"\)$/.exec(line)
     if (marker !== null) say(marker[1])
+    // The session asks LLDB for its own process state with a `script` command, because every
+    // process command is refused while an attach is still settling (see `PROCESS_STATE_COMMAND`).
+    else if (line.startsWith('script print("xcb-lldb-state=')) say(`xcb-lldb-state=${String(options.processState ?? 6)}`)
     else if (typeof options.onCommand === 'function') options.onCommand(line, child)
   }
   // A real lldb reads stdin sequentially and cannot answer while the inferior runs — the
   // sentinel of the NEXT command waits for the stop. Without this the engine's most
   // important case (a command that has not finished) could never be reproduced.
+  // What the scripted LLDB says its process is doing, by number (6 is `running`, 3 `attaching`).
+  child.setState = (value) => { options.processState = value }
   child.block = () => { blocked = true }
   child.unblock = () => {
     blocked = false
@@ -96,8 +101,8 @@ function fakeLldb(options = {}) {
 }
 
 /** A session wired to a scripted child, plus the handle to script it. */
-function sessionWith(onCommand, opts = {}) {
-  const child = fakeLldb({ onCommand })
+function sessionWith(onCommand, opts = {}, childOptions = {}) {
+  const child = fakeLldb({ onCommand, ...childOptions })
   const session = createLldbSession({
     spawnFn: () => child,
     killFn: (pid, signal) => child.kills.push(`${signal}:${pid}`),
@@ -632,6 +637,41 @@ section('polling with the summary\'s cursor never returns a line twice')
   await session.send('po 1')
   const fresh = session.readLines(cursor)
   check(fresh.length > 0 && fresh.every((line) => line.n >= cursor), 'and the next poll gets exactly the new lines')
+}
+
+section('an attach that is still settling is never nudged into `Process must be launched.`')
+{
+  // Measured on 蜜语-Dev: `device process attach` answered in 1 s, LLDB's own SIGSTOP stop arrived at
+  // 22 s, and in between the plugin asked for a stop once every 3 s — seven refusals in one attach,
+  // for a nudge that changed nothing, because the attach itself is what stops the app. The window is
+  // compressed here; the cadence is the engine's own.
+  const asked = []
+  const { session, child } = sessionWith((line, c) => {
+    if (line === 'process interrupt') {
+      asked.push(line)
+      c.say('error: Process must be launched.')
+    }
+    if (line.startsWith('device process attach')) setTimeout(() => c.say('Process 362 stopped'), 3600)
+  }, {}, { processState: 3 })
+  session.start()
+  const answer = await session.attach(
+    { kind: 'device', id: 'u', pid: 362, mode: 'attach' },
+    { timeoutMs: 12000, commandTimeoutMs: 2000 },
+  )
+  eq(answer.ok, true, 'the attach still succeeds — on LLDB\'s own stop')
+  eq(answer.state, 'stopped', 'and the process is left stopped, which is what an expression needs')
+  eq(asked, [], 'without a single interrupt thrown at a process LLDB has not launched')
+  const transcript = session.readLines(0).map((line) => line.t)
+  eq(transcript.some((text) => text.includes('Process must be launched')), false,
+    'and no refusal line anywhere in the transcript')
+  // The state was asked, not guessed: that is what the decision above rests on.
+  const questions = child.written.filter((line) => line.startsWith('script print("xcb-lldb-state='))
+  check(questions.length >= 2, 'the state was asked of LLDB, twice at least', String(questions.length))
+  // And the `process status` probes are kept: they are answered during a settling attach, and their
+  // answer is the `stop reason = signal SIGSTOP` line that tells the wait an attach is finishing
+  // rather than stuck. Only the interrupt is withheld.
+  check(child.written.some((line) => line === 'process status'),
+    'while `process status` — answered, and the evidence a finishing attach gives — is still asked')
 }
 
 section('the session\'s own state probes stay out of the transcript')
