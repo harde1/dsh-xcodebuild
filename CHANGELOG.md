@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.6.12
+
+### Fixed
+
+- **The disclosure triangle is drawn, not set in type.** It was a `▸`/`▾` character at 9 points,
+  which on this panel renders as a dot: the fold worked, but the row could not say which way the
+  subtree had gone. It is a triangle in borders now — `▾`-shaped while open, `▸`-shaped while shut —
+  and it **turns 90° as it opens**, so the click is felt as well as seen. The hit area is the full
+  height of the row, hovering it lights a small square behind it so it reads as a button, and the
+  tooltip says `折叠这 2 个子视图（⌥ 点击整枝）`.
+- **A shut row says how much it is holding.** A folded view carries a dim `+2` beside its triangle,
+  so "did I just fold this, and is there anything in it" is answered on the row itself instead of by
+  unfolding it again.
+- The inspector's class groups carry the same drawn caret, for the same reason.
+- Each triangle is a `role="button"` with `aria-expanded`, so the state it shows is also the state it
+  announces.
+
 ## 0.6.11
 
 ### Added

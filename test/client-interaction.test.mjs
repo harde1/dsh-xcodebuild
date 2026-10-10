@@ -3008,12 +3008,14 @@ section('the LLDB drawer')
   // subtree is, it folds that subtree away, the fold is remembered by ADDRESS so a re-read keeps the
   // shape the user made (Lookin remembers it by object id), and the arrow keys walk and fold it.
   {
-    const glyphs = () => Array.from(container.querySelectorAll('.xcb-lldb-tw')).map((node) => node.textContent)
+    // The caret is a drawn triangle rather than a character — a `▸` at this size is a dot — so what
+    // a test can ask is the same thing the user is told: is there one, and does it say expanded.
+    const carets = () => Array.from(container.querySelectorAll('.xcb-lldb-tw')).map((node) => (node.querySelector('.xcb-lldb-caret') === null ? '-' : node.getAttribute('aria-expanded')))
     const rowCount = () => container.querySelectorAll('.xcb-lldb-row').length
     const rows = () => Array.from(container.querySelectorAll('.xcb-lldb-row'))
     const triangle = (index) => rows()[index].querySelector('.xcb-lldb-tw')
     const tick = () => new Promise((resolve) => setTimeout(resolve, 40))
-    equal(glyphs().join('|'), '▾|▾||', 'a triangle is drawn for a view that has children, and for no other')
+    equal(carets().join('|'), 'true|true|-|-', 'a triangle is drawn for a view that has children, and for no other')
 
     const foldButtons = Array.from(container.querySelectorAll('.xcb-lldb-foldbtn'))
     equal(foldButtons.map((node) => nameOf(node)).join('/'), '智能/展开/折叠', 'the three ways Lookin asks it are offered')
@@ -3025,7 +3027,11 @@ section('the LLDB drawer')
     }
     await act(async () => { propsOf(triangle(0)).onClick({ stopPropagation() {}, altKey: false }); await tick() })
     equal(rowCount(), 1, 'clicking the window\'s triangle folds its subtree away')
-    equal(rows()[0].querySelector('.xcb-lldb-tw').textContent, '▸', 'and the triangle points right while it is shut')
+    const shutTw = rows()[0].querySelector('.xcb-lldb-tw')
+    check(shutTw.classList.contains('shut') && shutTw.getAttribute('aria-expanded') === 'false',
+      'and the triangle says the subtree is shut, which is what turns it to point right', shutTw.className)
+    check(rows()[0].querySelector('.xcb-lldb-twcount')?.textContent === '+2',
+      'and the shut row says how many children it is holding, so a fold is never a mystery')
 
     // The point of keying the fold by address: the app can be read again without losing it.
     await act(async () => { propsOf(viewButton).onClick(); await tick() })
