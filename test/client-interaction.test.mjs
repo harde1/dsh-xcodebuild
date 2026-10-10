@@ -3044,6 +3044,14 @@ section('the LLDB drawer')
     await new Promise((resolve) => setTimeout(resolve, 60))
   })
   check(calls.some((call) => call.method === 'lldb' && call.body.op === 'view'), 'it asks the host for the view hierarchy')
+  // The tree column is not shown by default: the canvas comes up whole, and 图层树 opens the column.
+  {
+    const outlineTab = Array.from(container.querySelectorAll('.xcb-lldb-canvas-bar .xcb-lldb-tab')).find((node) => node.textContent === '图层树')
+    equal(container.querySelector('.xcb-lldb-treecol'), null, 'a read does not open the tree column by itself')
+    check(outlineTab !== undefined && !outlineTab.classList.contains('on'), 'and 图层树 in the toolbar shows it is off')
+    check(container.querySelector('.xcb-lldb-stage') !== null, 'while the canvas shows what was read')
+    await act(async () => { propsOf(outlineTab).onClick() })
+  }
   equal(container.querySelectorAll('.xcb-lldb-row').length, 4, 'and every view is drawn')
   check(container.textContent.includes('4 views · 2 levels'), 'with the count of what was found', container.querySelector('.xcb-lldb-stats')?.textContent)
   check(container.querySelector('.xcb-lldb-state').textContent.includes('stopped'),
@@ -4120,6 +4128,10 @@ section('the LLDB drawer')
   })
   check(held.some((call) => call.method === 'lldb' && call.body.op === 'view' && call.body.mode === 'launch'),
     'which asks for the tree by launching the app under the debugger')
+  // The tree column starts hidden; open it to count the rows.
+  await act(async () => {
+    propsOf(Array.from(fourthRender.container.querySelectorAll('.xcb-lldb-canvas-bar .xcb-lldb-tab')).find((node) => node.textContent === '图层树')).onClick()
+  })
   equal(fourthRender.container.querySelectorAll('.xcb-lldb-row').length, 4, 'and the tree arrives')
 
   // What the host really sends for 蜜语-Dev now that it listens to asynchronous errors: LLDB's own

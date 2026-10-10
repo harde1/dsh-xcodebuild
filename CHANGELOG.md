@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.6.14
+
+### Changed
+
+- **The LLDB drawer's view-tree column is no longer shown by default.** A read brings up the canvas
+  whole — the screen itself, which the column used to cover on its left — and `图层树` in the tree's
+  toolbar opens the column when it is wanted, as before. Picking a view on the canvas, the inspector,
+  and the fold state are unaffected.
+
 ## 0.6.13
 
 ### Added
