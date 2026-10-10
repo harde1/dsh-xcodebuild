@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.6.9
+
+### Fixed
+
+- **A picture that came from a screen capture says so.** The host answers the window request with a
+  note either way — why there is no picture, or why the one there is was cropped out of a capture —
+  and the canvas kept that note only when the request FAILED, so a cropped window looked exactly like
+  a rendered one. It is now kept whenever the host sends one: the `截图` tooltip reads `这张是<note>`
+  rather than the "no screenshot" wording it used to show while a picture was on screen, and the
+  status line marks the picture `· 截图（裁剪）`.
+
 ## 0.6.8
 
 ### Fixed
@@ -20,8 +31,8 @@
   all.
 - **And if neither can run, the screen is captured and cropped to the window.** A capture needs no
   debugger, no expression and no headers — the platform's own screenshot tool and `sips` — so the
-  canvas gets a picture even on a target this panel cannot attach to, with the note saying the
-  picture is a capture. The panel sends the window's frame with the request (it is in the tree it
+  canvas gets a picture even on a target this panel cannot attach to, with the host saying so in
+  its note (the canvas shows that note since 0.6.9). The panel sends the window's frame with the request (it is in the tree it
   already read) and the host measures the crop against the capture's own pixel width, which is what
   keeps the boxes on top of the right pixels. Measured through the host itself: `from=crop`, a 74 KB
   PNG, and the same geometry `sips -c <h> <w> --cropOffset <top> <left>` was checked against a

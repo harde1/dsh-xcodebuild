@@ -2738,6 +2738,9 @@ section('the LLDB drawer')
   // 刷新截图.
   let windowReads = 0
   const windowBodies = []
+  // The host uses this note for both answers: why there is no picture, and why the one there is came
+  // from a capture rather than a render. It is set per test.
+  let windowNote = ''
   const edits = []
   let editSticks = true
   let history = [
@@ -2792,7 +2795,7 @@ section('the LLDB drawer')
       if (body.op === 'window') {
         windowReads += 1
         windowBodies.push(body)
-        return { ok: true, note: '', image: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUg==' }
+        return { ok: true, note: windowNote, image: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUg==' }
       }
       if (body.op === 'attributes') {
         attributeReads.push({ address: body.address, refresh: body.refresh === true })
@@ -3458,6 +3461,20 @@ section('the LLDB drawer')
     // produce this picture without a single expression: a screen capture, cropped to the window.
     equal(windowBodies[windowBodies.length - 1]?.frame?.width, 390, 'and the request carries the window frame')
     equal(windowBodies[windowBodies.length - 1]?.frame?.height, 844, 'as the tree measured it')
+
+    // A picture that came from a screen capture says so. The note is kept when there IS an image —
+    // that is the whole point of it on this path — and it is not read out as a missing screenshot.
+    windowNote = '屏幕截图裁剪出的窗口'
+    await act(async () => {
+      propsOf(refresh).onClick()
+      await new Promise((resolve) => setTimeout(resolve, 40))
+    })
+    const shotTitle = Array.from(container.querySelectorAll('.xcb-lldb-canvas-check'))
+      .find((label) => label.textContent === '截图')?.getAttribute('title') ?? ''
+    check(shotTitle.includes('屏幕截图裁剪出的窗口'), 'a cropped picture carries its explanation', shotTitle)
+    equal(/没有截图/.test(shotTitle), false, 'and is not described as a missing one')
+    check(container.textContent.includes(' · 截图（裁剪）'), 'and the status line marks it as a crop')
+    windowNote = ''
 
     // A box with room for a name says what it is.
     check(plane('0x3')?.querySelector('.xcb-lldb-plane-tag')?.textContent === 'Example.StatusLight',
