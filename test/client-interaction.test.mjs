@@ -3800,6 +3800,18 @@ section('the LLDB drawer')
     check(/rotateX\(18deg\) rotateY\(-28deg\)/.test(container.querySelector('.xcb-lldb-world').style.transform),
       'and turns the stack so the depth can be seen')
     check(container.querySelector('.xcb-lldb-canvas-space') !== null, 'with a slider for the layer spacing')
+    equal(Number(propsOf(container.querySelector('.xcb-lldb-canvas-space')).value), 0.22, 'starting at Lookin\u2019s default spacing, 0.22')
+    // Lookin's depth rule for a folded subtree: its views are not levels of their own but stand on
+    // the folded view's level, so a closed branch does not stack the canvas dozens of levels tall.
+    {
+      const stackTw = Array.from(container.querySelectorAll('.xcb-lldb-row')).find((node) => node.textContent.includes('UIStackView'))?.querySelector('.xcb-lldb-tw')
+      await act(async () => { propsOf(stackTw).onClick({ stopPropagation() {}, altKey: false }) })
+      check(Math.abs(zOf('0x3') - zOf('0x2')) < 0.01, 'folding a view flattens what is under it onto its own level', [zOf('0x2'), zOf('0x3')])
+      check(plane('0x3') !== undefined, 'and still draws it')
+      const shutTw = Array.from(container.querySelectorAll('.xcb-lldb-row')).find((node) => node.textContent.includes('UIStackView'))?.querySelector('.xcb-lldb-tw')
+      await act(async () => { propsOf(shutTw).onClick({ stopPropagation() {}, altKey: false }) })
+      check(zOf('0x3') > zOf('0x2'), 'and opening it again stands it in front once more', [zOf('0x2'), zOf('0x3')])
+    }
     const before = zOf('0x3') - zOf('0x1')
     await act(async () => { propsOf(container.querySelector('.xcb-lldb-canvas-space')).onChange({ target: { value: '1' } }) })
     check(zOf('0x3') - zOf('0x1') > before, 'which pulls the layers further apart')

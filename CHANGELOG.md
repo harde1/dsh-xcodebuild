@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.6.17
+
+### Changed
+
+- **3D layers stand closer, the way Lookin's do.** Two things made the stack too tall:
+  - The spacing started at 0.35; it now starts at Lookin's default `zInterspace`, 0.22 (the
+    slider still runs 0–1, through the same `0.1 + spacing × 0.7` formula).
+  - Every view was its own level. Lookin gives a view under a folded one its folded ancestor's
+    level (`previewZIndex = superItem.previewZIndex`), so a closed branch is one layer, not one per
+    overlapping descendant. The canvas now does the same, following the tree's folds: fold a branch
+    and its insides flatten onto it, open it and they stand apart again.
+- **The default fold matches Lookin's.** Besides the bars and stacked transition views, the smart
+  expansion now folds what Lookin's `classesPreferredToCollapse` folds — `UILabel`, `UIButton`,
+  `UIImageView`, `UITextField`, `UISwitch`, `UIVisualEffectView` and the other system controls whose
+  insides are UIKit's — and hidden views. Their private subviews no longer fill the tree, nor stack
+  extra layers in 3D.
+
 ## 0.6.16
 
 ### Added
