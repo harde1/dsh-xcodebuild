@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.6.5
+
+### Changed
+
+- **添到聊天 now leaves a chip in the composer, not a paragraph.** The view still goes in whole —
+  class, address, the path from the window down, what it shows, its frame, its parent, the app it is
+  in — but the composer shows `UILabel 0x10a3f…`, and the description replaces that chip only when
+  the message is sent: the draft stays readable and the question stays the user's. The description
+  travels in the chip itself (the composer's `insertReference`, with the source this plugin registers
+  through `inputTriggers`), which is what keeps it correct through undo, copy and paste without a
+  side table. A shell whose composer has no chips still gets the plain text, as before, and a
+  composer that refuses the chip falls back to it in the same call.
+- **A view row's right-click menu leads with 聚焦.** That is the filter the row's own control
+  already toggled — the view and its subtree alone — and on the focused view the same place offers
+  退出聚焦. Focusing clears the search, because focus and search are two filters on one list.
+
+### Tests
+
+- `test/client-interaction.test.mjs`: the mock composer now models chips apart from text — a label in
+  the draft, `insertReference` refused unless the span is current and at the end, and a send that
+  asks the chip's source to serialize it — so the checks assert the chip's label, the serialized
+  description, and that the pre-existing draft survives. The right-click menu is checked to lead with
+  聚焦, to show that view and its subtree alone, and to offer 退出聚焦 on the focused view.
+
 ## 0.6.4
 
 ### Fixed

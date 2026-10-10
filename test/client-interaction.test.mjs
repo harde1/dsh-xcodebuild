@@ -219,8 +219,9 @@ function mount({ dock, sidebarRight, seatOrder, services } = {}) {
   const scopes = {
     betterSidebar: service === undefined ? null : { betterSidebar: service, effect: scopeEffect },
     sidebarRightTabs: registry === undefined ? null : { sidebarRightTabs: registry, effect: scopeEffect },
+    inputTriggers: services?.inputTriggers === undefined ? null : { inputTriggers: services.inputTriggers, effect: scopeEffect },
   }
-  for (const key of seatOrder ?? ['sidebarRightTabs', 'betterSidebar']) {
+  for (const key of seatOrder ?? ['sidebarRightTabs', 'betterSidebar', 'inputTriggers']) {
     const call = pending.find((entry) => entry.services.includes(key) && scopes[key] !== null && entry.done !== true)
     if (call === undefined) continue
     call.done = true
@@ -2828,22 +2829,55 @@ section('the LLDB drawer')
   })
 
   // The chat composer, as the conversation's input face presents it: a draft to read and replace.
-  const composer = { draft: 'why is this too tall?', scopes: [] }
+  // Chips are kept apart from the text: the draft shows their label, and a send asks the chip's
+  // source to serialize it, the way the conversation's shell does.
+  const composer = { draft: 'why is this too tall?', chips: [], scopes: [], rev: 0 }
   const chatScope = { id: 'scope-lldb-drawer' }
+  const sources = []
   const services = {
     sessions: { scope: (id) => (id === 'lldb-drawer' ? chatScope : undefined) },
+    inputTriggers: {
+      registerSource(source) {
+        sources.push(source)
+        return () => { sources.splice(sources.indexOf(source), 1) }
+      },
+    },
     conversation: {
       input: {
         for(scope) {
           composer.scopes.push(scope)
           return {
-            get snapshot() { return { draft: composer.draft } },
-            setDraft(text) { composer.draft = text },
+            get snapshot() { return { draft: composer.draft, draftRev: composer.rev } },
+            get projection() { return { detectText: composer.draft } },
+            setDraft(text) { composer.draft = text; composer.rev += 1 },
+            insertText(text, span) {
+              if (span.draftRev !== composer.rev) return false
+              composer.draft = composer.draft.slice(0, span.start) + text + composer.draft.slice(span.end)
+              composer.rev += 1
+              return true
+            },
+            insertReference(ref, span) {
+              if (span.draftRev !== composer.rev || span.start !== composer.draft.length) return false
+              composer.chips.push({ ...ref, offset: composer.draft.length })
+              composer.draft += `[${ref.label}]`
+              composer.rev += 1
+              return true
+            },
             focus() { composer.focused = true },
           }
         },
       },
     },
+  }
+  /** What a send hands the model: each chip replaced by its source's serialization. */
+  const sentMessage = async () => {
+    let out = composer.draft
+    for (const chip of [...composer.chips].reverse()) {
+      const source = sources.find((entry) => entry.name === chip.source)
+      const label = `[${chip.label}]`
+      out = out.slice(0, chip.offset) + await source.codec.serialize(chip.ref) + out.slice(chip.offset + label.length)
+    }
+    return out
   }
   const instance = mount({ services })
   const overlay = instance.components.get('dsh-xcodebuild-panel')
@@ -3235,12 +3269,15 @@ section('the LLDB drawer')
   check(addItem !== undefined, 'right-clicking a view row offers 添到聊天')
   await act(async () => { propsOf(addItem).onClick() })
   equal(composer.scopes[0], chatScope, 'into the composer of the session this panel belongs to')
-  check(composer.draft.startsWith('why is this too tall?\n\n'), 'after what was already typed, not over it', composer.draft.slice(0, 40))
-  check(composer.draft.includes('Example.StatusLight 0x3'), 'naming the class and the exact address', composer.draft)
-  check(composer.draft.includes('UIWindow > UIStackView > Example.StatusLight'), 'with the path from the window down', composer.draft)
-  check(composer.draft.includes('"● GC 键盘"') && composer.draft.includes('0,0 116.7x44'), 'with what it shows and where', composer.draft)
-  check(composer.draft.includes('parent: UIStackView 0x2'), 'and its parent', composer.draft)
-  check(composer.draft.includes('HIDProbe'), 'and which app it is in', composer.draft)
+  equal(composer.draft, 'why is this too tall? [Example.StatusLight 0x3]',
+    'as a chip showing only the class and the address, after what was already typed')
+  const message = await sentMessage()
+  check(message.startsWith('why is this too tall? [iOS view hierarchy]'), 'and a send replaces the chip with the full description', message.slice(0, 60))
+  check(message.includes('Example.StatusLight 0x3'), 'naming the class and the exact address', message)
+  check(message.includes('UIWindow > UIStackView > Example.StatusLight'), 'with the path from the window down', message)
+  check(message.includes('"● GC 键盘"') && message.includes('0,0 116.7x44'), 'with what it shows and where', message)
+  check(message.includes('parent: UIStackView 0x2'), 'and its parent', message)
+  check(message.includes('HIDProbe'), 'and which app it is in', message)
   check(container.querySelector('.xcb-lldb-rowmenu') === null, 'the menu closes once used')
   // Right-click picked that row, as a native list does; put the pick back where the next checks expect it.
   await act(async () => {
@@ -3257,6 +3294,26 @@ section('the LLDB drawer')
     propsOf(buttonNamed(container, '退出聚焦')).onClick()
   })
   equal(container.querySelectorAll('.xcb-lldb-row').length, 4, 'and leaving focus shows the whole hierarchy again')
+
+  // Lookin's right-click menu leads with Focus; here too, and on the focused view it is the way out.
+  const rowMenuItem = (label) => Array.from(container.querySelectorAll('.xcb-lldb-rowmenu .xcb-ctxmenu-item'))
+    .find((node) => node.textContent === label)
+  const rightClick = async (text) => {
+    await act(async () => {
+      const row = Array.from(container.querySelectorAll('.xcb-lldb-row')).find((node) => node.textContent.includes(text))
+      propsOf(row).onContextMenu({ preventDefault() {}, clientX: 40, clientY: 40 })
+      await new Promise((resolve) => setTimeout(resolve, 40))
+    })
+  }
+  await rightClick('UIStackView')
+  check(container.querySelector('.xcb-lldb-rowmenu .xcb-ctxmenu-item')?.textContent === '聚焦', 'the right-click menu leads with 聚焦')
+  await act(async () => { propsOf(rowMenuItem('聚焦')).onClick() })
+  equal(Array.from(container.querySelectorAll('.xcb-lldb-row .xcb-lldb-class')).map((node) => node.textContent).join(' > '),
+    'UIStackView > Example.StatusLight', 'and 聚焦 shows that view and its subtree alone')
+  await rightClick('UIStackView')
+  check(rowMenuItem('退出聚焦') !== undefined, 'on the focused view the menu offers 退出聚焦 instead')
+  await act(async () => { propsOf(rowMenuItem('退出聚焦')).onClick() })
+  equal(container.querySelectorAll('.xcb-lldb-row').length, 4, 'which shows the whole hierarchy again')
 
   // A picked view becomes the command bar's object: a chip names it, one-click commands act on it,
   // and `$v` in a typed command stands for it.
