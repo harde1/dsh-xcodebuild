@@ -66,8 +66,11 @@ check(expression.includes('[layer renderInContext:soloContext]'), 'the layer is 
 check(/CGBitmapContextCreate\(NULL, pixelWidth, pixelHeight/.test(expression), 'made at a pixel size, not a point size')
 check(expression.includes('double box[4] = {0, 0, 0, 0}'), 'geometry starts as four doubles')
 check(expression.includes('[frameBox getValue:(void *)box]'), 'filled by NSValue, which is the only way to ask for a frame without naming CGRect')
-check(/initWithCGImage:soloImage scale:\(CGFloat\)viewScale orientation:\(UIImageOrientation\)0/.test(expression),
+check(/initWithCGImage:soloImage scale:xcbViewScale orientation:\(UIImageOrientation\)0/.test(expression),
   'and the image is an enum-cast UIImage, not a bare 0 the parser refuses')
+// `CGFloat` is the type whose absence started all of this: a target without headers drops the
+// declaration that names it, and every later use of that variable becomes an external symbol lookup.
+eq(/\bCGFloat\b/.test(expression), false, 'no spelling names CGFloat, not even the typed one')
 eq(/\[NSValue valueWith/.test(expression), false, 'no NSValue is constructed, only read from the view')
 
 section("the modules are imported, because the target\u2019s language has no headers")
@@ -75,6 +78,34 @@ section("the modules are imported, because the target\u2019s language has no hea
 // but every typedef is an undeclared identifier, so the render did not compile at first use either.
 check(expression.includes('@import UIKit; @import QuartzCore;'), 'UIKit and QuartzCore are imported ahead of the expression')
 eq(expression.indexOf('@import UIKit'), expression.indexOf('po ') + 3, 'immediately after the `po`, before anything that needs them')
+
+section('the headerless spelling names no type a header declares')
+// A target whose UIKit module cannot be imported drops any declaration whose type it does not know,
+// and every later use of that variable becomes an external symbol lookup — which is how a render
+// failure arrived as `error: Multiple external symbols found for 'scale'`. This spelling avoids the
+// question: builtin types only, C pointers as `void *`, C functions called as implicit declarations.
+const bare = viewShotsExpression({ start: 0, limit: 1, scale: 1, typed: false })
+check(bare.startsWith('po ({'), 'it is one statement expression behind a plain `po`')
+eq(bare.includes('@import'), false, 'and asks for no module, because a module it cannot have is the failure it survives')
+for (const type of ['CGFloat', 'NSInteger', 'NSUInteger', 'CGContextRef', 'CGImageRef', 'CGColorSpaceRef', 'CGRect', 'CGSize', 'CGPoint', 'BOOL']) {
+  eq(new RegExp(`\\b${type}\\b`).test(bare), false, `it never names ${type}`)
+}
+check(bare.includes('void *soloSpace = (void *)CGColorSpaceCreateDeviceRGB()'), 'a colour space is a void pointer')
+check(bare.includes('(void *)CGBitmapContextCreate(NULL, pixelWidth, pixelHeight, 8, 0, soloSpace, (2 | 8192))'),
+  'and the bitmap flags are the number the two enum names add up to (measured: they build a kCGContextTypeBitmap context)')
+check(bare.includes('scale:xcbViewScale orientation:0'), 'the orientation is a plain 0, with no enum to contradict it')
+check(bare.includes('[[UIImage alloc] initWithCGImage:soloImage scale:xcbViewScale orientation:0]'), 'and the image is created the same way')
+// A `//` comment inside the body would comment out every statement after it, because the body is
+// joined into one line: the walk would silently stop rendering. Measured while writing this.
+eq(bare.includes('//'), false, 'and nothing in the emitted text is a comment')
+eq(viewShotsExpression({ start: 0, limit: 1, scale: 1 }).includes('//'), false, 'in the typed spelling either')
+check(!/for \([^)]* in /.test(bare), 'no fast enumeration: a headerless unit is told the type "may not respond to countByEnumeratingWithState:objects:count:"')
+check(bare.includes('for (unsigned long xcbAt = 0; xcbAt < (unsigned long)[sublayers count]'), 'the sublayers are walked by index instead')
+// The name that started this: a local called `scale` collides with real symbols the moment its
+// declaration is dropped, and the linker then reports the collision instead of the missing type.
+eq(/\bscale\b(?!:)/.test(bare), false, 'and no local is named after a symbol the process may export')
+check(bare.includes('double xcbScale = 1'), 'the scale is a double called xcbScale')
+check(/(^|\n)po .+$/.test(bare) && !bare.includes('\n'), 'the whole thing is one line, which is what the command interpreter reads')
 
 section('the report is parsed into the node it belongs to')
 const report = parseShotsReport(`RENDERED 2 SKIPPED 1 DIR /tmp/dsh-lookin-shots

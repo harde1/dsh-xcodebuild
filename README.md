@@ -105,7 +105,10 @@ fixes what used to be invisible here: **no CoreGraphics struct may be a value in
 on Xcode 26** (`error: attempt to use a deleted function` for `CGSize size = [layer frame].size` and
 for `CGRectMake`, in every language mode), so the geometry travels as four doubles out of `NSValue`
 and the context is a bitmap context — which is what made the per-view images real rather than always
-falling back to a cropped screenshot.
+falling back to a cropped screenshot. Where even that cannot run — a device whose UIKit module the
+installed Xcode has no SDK for, so no `CGFloat` and no `CGContextRef` can be named — the window is a
+**screen capture cropped to its frame** instead, taken with the platform's own tool and `sips`, which
+needs no debugger at all; the note beside the picture says so.
 
 **An inspector beside the tree, built on LLDB alone.** Picking a view opens three panes and no
 Lookin server anywhere. They are drawn from **one read**: the stop that reads the tree also reads

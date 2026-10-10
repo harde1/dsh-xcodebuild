@@ -2737,6 +2737,7 @@ section('the LLDB drawer')
   // How many times the canvas asked for the window's picture: once per tree read, and again on
   // 刷新截图.
   let windowReads = 0
+  const windowBodies = []
   const edits = []
   let editSticks = true
   let history = [
@@ -2790,6 +2791,7 @@ section('the LLDB drawer')
       }
       if (body.op === 'window') {
         windowReads += 1
+        windowBodies.push(body)
         return { ok: true, note: '', image: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUg==' }
       }
       if (body.op === 'attributes') {
@@ -3452,6 +3454,10 @@ section('the LLDB drawer')
       await new Promise((resolve) => setTimeout(resolve, 40))
     })
     equal(windowReads, shotReads + 1, 'which reads the picture again')
+    // The frame the tree already knows travels with the request, because it is what lets the host
+    // produce this picture without a single expression: a screen capture, cropped to the window.
+    equal(windowBodies[windowBodies.length - 1]?.frame?.width, 390, 'and the request carries the window frame')
+    equal(windowBodies[windowBodies.length - 1]?.frame?.height, 844, 'as the tree measured it')
 
     // A box with room for a name says what it is.
     check(plane('0x3')?.querySelector('.xcb-lldb-plane-tag')?.textContent === 'Example.StatusLight',

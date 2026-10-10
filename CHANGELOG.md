@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.6.8
+
+### Fixed
+
+- **A device whose UIKit module cannot be imported gets its window on the canvas.** The backdrop was
+  rendered by an expression that named `CGFloat`, `CGContextRef`, `CGImageRef` and
+  `UIImageOrientation`, and on such a target every one of those is an unknown type name. Clang
+  *recovers* from an unknown type by dropping the declaration that used it, so `CGFloat scale = 1;`
+  vanished and each later use of `scale` became an external symbol lookup — which is how a render
+  failure arrived as the unrelated `error: Multiple external symbols found for 'scale'`. The
+  expression is now written in a second spelling that names no type a header declares (every local a
+  builtin, every C pointer a `void *`, the C functions called as implicit declarations, the bitmap
+  flags as the number the two enum names add up to, no fast enumeration), is free of `CGFloat` even
+  in the spelling that does name types, and calls its scale `xcbScale` so a dropped declaration can
+  never collide with a symbol again. The host tries the typed spelling, falls back to this one, and
+  both were measured on a simulator: the typed one renders the window (26 KB PNG, `RENDERED 1
+  SKIPPED 0`), and the headerless one rendered its PNGs in a session that had imported no module at
+  all.
+- **And if neither can run, the screen is captured and cropped to the window.** A capture needs no
+  debugger, no expression and no headers — the platform's own screenshot tool and `sips` — so the
+  canvas gets a picture even on a target this panel cannot attach to, with the note saying the
+  picture is a capture. The panel sends the window's frame with the request (it is in the tree it
+  already read) and the host measures the crop against the capture's own pixel width, which is what
+  keeps the boxes on top of the right pixels. Measured through the host itself: `from=crop`, a 74 KB
+  PNG, and the same geometry `sips -c <h> <w> --cropOffset <top> <left>` was checked against a
+  1206×2622 capture to produce exactly 600×1200.
+- **A `//` comment may not appear in the emitted expression.** The body is joined into one line
+  before it is sent, so a comment inside it would comment out every statement after it — the walk
+  would silently stop rendering. The reason for each loop now sits in the JavaScript around the
+  template, and a test asserts the emitted text contains no `//` at all.
+
 ## 0.6.7
 
 ### Fixed
