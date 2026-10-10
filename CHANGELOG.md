@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.6.7
+
+### Fixed
+
+- **A two-finger slide moves the canvas instead of zooming it.** Every `wheel` event changed the
+  scale, and a trackpad reports a two-finger slide as a wheel event with no modifier — so the canvas
+  zoomed when it was meant to be steered, and the page under it scrolled too. The rule now follows
+  what the gesture actually is: a slide moves the camera (⌘/Shift not needed), a **pinch** zooms — a
+  pinch arrives as a wheel with `ctrlKey` set, which is how a browser reports it — and ⌘+wheel zooms
+  deliberately. A mouse wheel reports lines rather than pixels (`deltaMode` 1), so a notch now moves
+  16 px instead of 3 px, which is the difference between a wheel that works and one that appears not
+  to. The inspector's image preview follows the same rule, since it is the same gesture.
+- **The zoom percentage can be dragged.** It was a label; it is now the control — drag it sideways
+  and the zoom follows the pointer multiplicatively (the distance that takes 50 % to 100 % also takes
+  100 % to 200 %, so it can be aimed at either end of the range), double-click returns to 100 %, and
+  the tooltip says both. A slider would have cost horizontal room the drawer does not have.
+- **The release of a drag no longer undoes it.** Writing the value back on `pointerup` used the
+  `props` of the last render, so a drag whose moves and release landed in one batch — coalesced
+  `pointermove` events, or simply a fast drag — snapped the zoom back to where it started. Every move
+  writes the zoom; the release commits nothing.
+
+### Tests
+
+- `test/client-interaction.test.mjs` (605 checks, was 594): a slide leaves both the percentage and the
+  scale where they were and moves the camera instead; a pinch zooms without moving it; a line-mode
+  notch pans by a line; dragging the percentage changes the zoom in the direction of the drag and
+  double-clicking it returns to 100 %.
+
+
 ## 0.6.6
 
 ### Fixed

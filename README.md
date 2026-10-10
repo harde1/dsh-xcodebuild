@@ -95,7 +95,10 @@ Lookin's preview, built the same way — from LLDB alone. It is the window's own
 inside the app while it is stopped (one view, scale 1, one short stop) and drawn in the canvas's own
 coordinates, so it zooms, turns and pans with the boxes; `2D` shows the frames flat, `3D` pulls them
 apart by overlap depth and a drag turns the stack, `隐藏视图` draws the hidden ones dashed, and a
-box carries its class name when it is big enough on screen to hold one. Clicking a box picks that
+box carries its class name when it is big enough on screen to hold one. **A slide moves the camera
+and never the scale** — a trackpad reports a two-finger slide as a wheel event with no modifier,
+which is why every scroll used to change the zoom — while a pinch (or ⌘+wheel) zooms and the
+percentage beside `适配` is itself a control: drag it sideways, double-click it for 100 %. Clicking a box picks that
 view, a double-click focuses it, a right-click opens the row's menu — and `截图` turns the picture
 off for a pure frame drawing, `刷新截图` reads it again. Rendering the app's own layer is also what
 fixes what used to be invisible here: **no CoreGraphics struct may be a value in an LLDB expression

@@ -3526,6 +3526,64 @@ section('the LLDB drawer')
       propsOf(Array.from(container.querySelectorAll('.xcb-lldb-seg button')).find((node) => node.textContent === '2D')).onClick()
     })
     check(/rotateX\(0deg\) rotateY\(0deg\)/.test(container.querySelector('.xcb-lldb-world').style.transform), '2D faces the screen square-on again')
+
+    // The gesture rules. A trackpad reports a two-finger slide as a `wheel` event with no modifier,
+    // and it means "move the picture": a canvas that changed its scale on every scroll could not be
+    // steered. Only a pinch (a wheel with ctrlKey, which is how browsers report one) or ⌘+wheel zooms.
+    const stage = container.querySelector('.xcb-lldb-stage')
+    const world = container.querySelector('.xcb-lldb-world')
+    const scrubber = container.querySelector('.xcb-lldb-canvas-bar .xcb-lldb-zoom')
+    check(scrubber !== null, 'the zoom percentage is a control of its own beside the canvas')
+    const zoomText = () => scrubber.textContent
+    const scaleOf = () => Number(/scale\(([-\d.]+)\)/.exec(world.style.transform)?.[1])
+    const panOf = () => {
+      const match = /translate\(([-\d.]+)px,\s*([-\d.]+)px\)/.exec(world.style.transform)
+      return { x: Number(match?.[1]), y: Number(match?.[2]) }
+    }
+    // A plain Event with the wheel's own fields on it: what the handler reads is deltaY / deltaX /
+    // deltaMode / ctrlKey, and this says so without depending on jsdom having a WheelEvent at all.
+    const wheelOver = (props) => {
+      const event = new dom.window.Event('wheel', { bubbles: true, cancelable: true })
+      for (const [name, value] of Object.entries(props)) Object.defineProperty(event, name, { value })
+      stage.dispatchEvent(event)
+    }
+    const zoomBefore = zoomText()
+    const scaleBefore = scaleOf()
+    const panBefore = panOf()
+    await act(async () => { wheelOver({ deltaX: 0, deltaY: -120, deltaMode: 0, ctrlKey: false, metaKey: false }) })
+    equal(zoomText(), zoomBefore, 'sliding with two fingers leaves the zoom alone')
+    check(Math.abs(scaleOf() - scaleBefore) < 1e-9, 'so the scale does not move either', [scaleBefore, scaleOf()])
+    check(Math.abs(panOf().y - (panBefore.y + 120)) < 1e-6, 'and the camera moves instead', [panBefore, panOf()])
+
+    await act(async () => { wheelOver({ deltaX: 0, deltaY: -120, deltaMode: 0, ctrlKey: true, metaKey: false }) })
+    check(zoomText() !== zoomBefore, 'a pinch — a wheel with ctrlKey — is what zooms', [zoomBefore, zoomText()])
+    check(Math.abs(panOf().y - (panBefore.y + 120)) < 1e-6, 'and it leaves the camera where it was', panOf())
+
+    // A mouse reports its wheel in lines, not pixels: three pixels of pan per notch is a wheel that
+    // looks broken, so the distance is scaled to something a hand can see.
+    const panAtLines = panOf().y
+    await act(async () => { wheelOver({ deltaX: 0, deltaY: 1, deltaMode: 1, ctrlKey: false, metaKey: false }) })
+    check(Math.abs(panOf().y - (panAtLines - 16)) < 1e-6, 'a line-mode wheel pans by a line, not by a pixel', [panAtLines, panOf().y])
+
+    // Dragging the percentage: multiplicative, so the distance that doubles 50 % also doubles 200 %.
+    // Real PointerEvents, not MouseEvents named "pointerdown": React's pointer events are built from
+    // the pointer interface, and a mouse event carrying a pointer's name reaches nothing.
+    const dragZoom = async (from, to) => {
+      await act(async () => {
+        scrubber.dispatchEvent(new dom.window.PointerEvent('pointerdown', { bubbles: true, clientX: from, button: 0, pointerId: 1 }))
+        scrubber.dispatchEvent(new dom.window.PointerEvent('pointermove', { bubbles: true, clientX: to, pointerId: 1 }))
+        scrubber.dispatchEvent(new dom.window.PointerEvent('pointerup', { bubbles: true, clientX: to, pointerId: 1 }))
+      })
+    }
+    const zoomAtDrag = zoomText()
+    await dragZoom(100, 220)
+    check(zoomText() !== zoomAtDrag, 'dragging the percentage changes the zoom', [zoomAtDrag, zoomText()])
+    const dragged = Number.parseInt(zoomText(), 10)
+    check(dragged > Number.parseInt(zoomAtDrag, 10), 'upwards for a rightward drag', [zoomAtDrag, zoomText()])
+    await dragZoom(100, -20)
+    check(Number.parseInt(zoomText(), 10) < dragged, 'and downwards for a leftward one', [dragged, zoomText()])
+    await act(async () => { propsOf(scrubber).onDoubleClick() })
+    equal(zoomText(), '100%', 'double-clicking the percentage returns to 100%')
     check(Array.from(container.querySelectorAll('.xcb-lldb-tab')).every((node) => node.textContent !== '画布'), 'the canvas has no show/hide switch')
     const tabNamed = (label) => Array.from(container.querySelectorAll('.xcb-lldb-treesec .xcb-lldb-canvas-bar .xcb-lldb-tab')).find((node) => node.textContent === label)
     check(container.querySelector('.xcb-lldb-treesec > .xcb-lldb-canvas-bar .xcb-lldb-seg') !== null,
