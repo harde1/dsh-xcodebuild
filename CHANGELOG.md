@@ -1,5 +1,66 @@
 # Changelog
 
+## 0.6.6
+
+### Fixed
+
+- **The canvas was a black rectangle, and now it is the app with the view frames on it.** Two things
+  were wrong. The first is in the debugger: the expression that renders a view's own image had never
+  compiled on Xcode 26. `po` evaluates in the target's language with no headers, so `CGFloat` was an
+  undeclared identifier and the whole render failed before it started; with the modules imported
+  (`@import UIKit; @import QuartzCore;`) it failed again, because LLDB's evaluator refuses every
+  CoreGraphics struct held by value — `CGSize size = [layer frame].size`, `CGRect r = CGRectMake(…)`,
+  `CGSize s = CGSizeMake(…)`, even reading `.size.width` off a temporary — with
+  `error: attempt to use a deleted function`, in `po`, `expression -l objc` and `expression -l objc++`
+  alike (measured live on an iPhone 17 simulator, iOS 26). Pointers, scalars, arrays and message
+  sends are unaffected. The render now takes its geometry out of `NSValue` into a `double[4]`, draws
+  into a `CGBitmapContextCreate` context at a pixel size computed from those doubles, and reads the
+  image back with `CGBitmapContextCreateImage` — verified live: 96 views walked, the key window
+  rendered 402×874. Every full export until now had silently fallen back to cropping a screen
+  capture, because the render returned no images at all.
+- **The 2D / 3D canvas draws the window's own picture under the boxes**, the way Lookin's preview
+  does: one short stop, one view (`windows firstObject`), rendered at scale 1, fetched by the new
+  `op=window` and drawn in the canvas's own coordinates — the tree's root frame — so it zooms, turns
+  and pans with the boxes and a focused subtree still lines up with it. It is asked for once per tree
+  read, never awaited by the read, and 刷新截图 re-reads it. Nothing about it can fail a read: no
+  picture is no backdrop, and the toolbar's tooltip says why.
+- **The boxes are visible, and they say what they are.** A 38 %-opacity 1 px border on a near-black
+  stage read as an empty panel. Borders are now 75 %, fills are doubled, hovering is bright and any
+  box with room on screen carries its class name.
+- **An empty canvas explains itself instead of being black.** When no view can be drawn, the stage
+  says how many records the tree held, how many the hidden filter dropped and how many had no frame,
+  rather than leaving the reader to guess. The status line always reports the view count, the world
+  size, the zoom and whether the screenshot is there.
+- **A narrow dock no longer squeezes the canvas out.** The tree and the inspector columns now shrink
+  before the canvas does (`min-width` 132 / 164 px against the canvas's 150 px), because a dock that
+  can hold two of the three columns must not lose the one the row exists for.
+
+### Changed
+
+- **A read can be reused while the screen still looks the same.** A screen capture is shrunk to a
+  16×32 grid of average brightness and compared cell by cell with the one taken when the tree was
+  read (`lib/screen-print.js`), because looking at the screen does not stop the app while reading the
+  tree does: over the threshold the cached tree is handed back without attaching at all, the drawer
+  marks how fresh it is, and `fresh: true` — what the panel's own button sends — reads the app again
+  regardless. `op=screen` reports the verdict on its own.
+- **An iOS 16 and earlier device is inspected over the classic channel.** CoreDevice knows iOS 17 and
+  later, so against an older phone every `devicectl` route answers that the device was not found —
+  about a phone that is plugged in and answering at that moment. The drawer now says that instead of
+  relaying it, and the attach follows the command script `ios-deploy` drives lldb with, which is the
+  one measured to debug that generation from a current Xcode (`lib/legacy-inspector.js`).
+
+### Tests
+
+- `test/view-shots.test.mjs` (39 checks, was 29): the two rules that were learned live are now
+  asserted — no `CGSize`/`CGRect`/`CGPoint` is ever named in the expression, no `NSValue` is
+  constructed but only read, the context is a bitmap one at a pixel size, and the module imports sit
+  immediately after the `po`.
+- `test/client-interaction.test.mjs` (591 checks, was 584): the backdrop is fetched by the tree read
+  and drawn at the window's own size and URL, 截图 hides it, 刷新截图 reads it again, a re-render does
+  not ask twice, and a box with room carries its class name.
+- `test/host-mount.test.mjs` (107 checks, was 103): `op=window` with nothing attached refuses with a
+  note and no image, and never describes a device with no name.
+
 ## 0.6.5
 
 ### Changed

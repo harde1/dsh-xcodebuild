@@ -47,6 +47,35 @@ check(expression.includes('20000'), 'and views too large for a context are skipp
 // message sends deep, so it is asserted as the whole expression rather than by a clever pattern.
 check(expression.includes('(UIView *)[[[UIApplication sharedApplication] windows] firstObject]'), 'the root window is reached through a cast too')
 
+section('no CG struct is ever a value in the expression: LLDB on Xcode 26 has deleted its copy')
+// Measured on an iPhone 17 simulator, Xcode 26's lldb, iOS 26. Every way of holding a struct by
+// value fails to COMPILE — `CGSize size = [layer frame].size`, `CGRect r = CGRectMake(...)`,
+// `CGSize s = CGSizeMake(...)`, `[view frame].size.width` with no local at all — in `po`,
+// `expression -l objc` and `expression -l objc++` alike:
+//
+//     error: attempt to use a deleted function
+//
+// while the walk, the message sends, the arrays and everything pointer- or scalar-shaped compile
+// and run. So the render takes its geometry out of `NSValue` into a `double[4]`, makes its context
+// with `CGBitmapContextCreate` at a pixel size computed from those doubles, and reads the image
+// back with `CGBitmapContextCreateImage`. Without this the whole render failed and every full export
+// silently fell back to cropping a screen capture.
+eq(/\b(CGSize|CGRect|CGPoint)\b/.test(expression), false, 'no struct type is named, in any form')
+check(!/UIGraphicsBeginImageContext/.test(expression), 'and no UIKit image context, whose size argument is a struct')
+check(expression.includes('[layer renderInContext:soloContext]'), 'the layer is drawn into a bitmap context')
+check(/CGBitmapContextCreate\(NULL, pixelWidth, pixelHeight/.test(expression), 'made at a pixel size, not a point size')
+check(expression.includes('double box[4] = {0, 0, 0, 0}'), 'geometry starts as four doubles')
+check(expression.includes('[frameBox getValue:(void *)box]'), 'filled by NSValue, which is the only way to ask for a frame without naming CGRect')
+check(/initWithCGImage:soloImage scale:\(CGFloat\)viewScale orientation:\(UIImageOrientation\)0/.test(expression),
+  'and the image is an enum-cast UIImage, not a bare 0 the parser refuses')
+eq(/\[NSValue valueWith/.test(expression), false, 'no NSValue is constructed, only read from the view')
+
+section("the modules are imported, because the target\u2019s language has no headers")
+// `po` evaluates in the target's language with no headers: ObjC classes resolve through the runtime,
+// but every typedef is an undeclared identifier, so the render did not compile at first use either.
+check(expression.includes('@import UIKit; @import QuartzCore;'), 'UIKit and QuartzCore are imported ahead of the expression')
+eq(expression.indexOf('@import UIKit'), expression.indexOf('po ') + 3, 'immediately after the `po`, before anything that needs them')
+
 section('the report is parsed into the node it belongs to')
 const report = parseShotsReport(`RENDERED 2 SKIPPED 1 DIR /tmp/dsh-lookin-shots
 0 <UIWindow: 0x105a0eef0; frame = (0 0; 402 874); gestureRecognizers = <NSArray: 0x600000c070c0>>

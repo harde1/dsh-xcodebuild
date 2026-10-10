@@ -87,6 +87,11 @@ function serve(handlers) {
       ?? path.slice(path.lastIndexOf('/') + 1)
     const body = init?.body ? JSON.parse(String(init.body)) : {}
     calls.push({ method, body })
+    // Opening the drawer asks quietly for a tree read earlier (`cacheOnly`). A host with nothing
+    // cached says so; a fixture that wants to answer it sets `handlers.cachedTree`.
+    if (method === 'lldb' && body.cacheOnly === true && handlers.cachedTree === undefined) {
+      return { ok: true, status: 200, async text() { return JSON.stringify({ ok: false, cached: false, verdict: 'none', note: 'no view tree was read for this app yet' }) } }
+    }
     const handler = handlers[method]
     if (handler === undefined) {
       return { ok: false, status: 404, async text() { return JSON.stringify({ message: `no route ${method}` }) } }
@@ -266,7 +271,9 @@ function propsOf(node) {
   return node[key]
 }
 
-const buttonNamed = (container, label) => Array.from(container.querySelectorAll('.xcb-btn')).find((node) => node.textContent === label)
+// A text button's name is its text; an icon button's (the LLDB drawer head) is its aria-label.
+const nameOf = (node) => node.getAttribute('aria-label') ?? node.textContent
+const buttonNamed = (container, label) => Array.from(container.querySelectorAll('.xcb-btn, .xcb-ibtn')).find((node) => nameOf(node) === label)
 
 /** Mount an app the way a person does: Apps, then the first running app in the list. */
 async function mountApp(container) {
@@ -514,7 +521,7 @@ section('without better-sidebar')
   check(container.querySelector('.xcb-picker') === null, 'the picker closes once a project is chosen')
 
   section('and it can be changed again')
-  const change = Array.from(container.querySelectorAll('.xcb-btn')).find((node) => node.textContent === 'Change')
+  const change = Array.from(container.querySelectorAll('.xcb-btn, .xcb-ibtn')).find((node) => node.textContent === 'Change')
   check(change !== undefined, 'a chosen project offers a way to change it')
   await act(async () => {
     change.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
@@ -1026,7 +1033,7 @@ section('clear empties the output log, not the filter')
   check(container.querySelectorAll('.xcb-line').length > 0,
     'the committed filter is showing matching lines to begin with')
 
-  const clear = Array.from(container.querySelectorAll('.xcb-btn')).find((node) => node.textContent === 'Clear')
+  const clear = Array.from(container.querySelectorAll('.xcb-btn, .xcb-ibtn')).find((node) => node.textContent === 'Clear')
   check(clear !== undefined, 'there is a Clear button')
   await act(async () => { propsOf(clear).onClick() })
 
@@ -1135,7 +1142,7 @@ section('every kind the classifier produces is reachable from a level button')
     .map((node) => /xcb-k-(\w+)/.exec(node.className)?.[1] ?? '?')
     .sort()
   const sorted = (list) => [...list].sort()
-  const button = (label) => Array.from(container.querySelectorAll('.xcb-btn'))
+  const button = (label) => Array.from(container.querySelectorAll('.xcb-btn, .xcb-ibtn'))
     .find((node) => node.textContent === label)
   const click = async (node) => {
     await act(async () => {
@@ -1818,7 +1825,7 @@ section('the run button says it builds first')
   check(rev !== null && rev.textContent === 'rev 2026-09-22T12:34:11Z',
     'and it is the revision the host reported', rev === null ? 'no .xcb-rev' : rev.textContent)
 
-  const buttons = Array.from(container.querySelectorAll('.xcb-btn'))
+  const buttons = Array.from(container.querySelectorAll('.xcb-btn, .xcb-ibtn'))
   const run = buttons.find((node) => node.textContent.includes('Run'))
   check(run !== undefined, 'a run button is offered')
   // `run` is a build followed by an install and a launch. A button reading only
@@ -2525,7 +2532,7 @@ section('looking at the list refreshes it, without moving the options under the 
     }),
     destinations: () => ({ destinations: [other], recommended: other.destination }),
   })
-  const button = Array.from(container.querySelectorAll('.xcb-btn')).find((node) => node.textContent === '⟳')
+  const button = Array.from(container.querySelectorAll('.xcb-btn, .xcb-ibtn')).find((node) => node.textContent === '⟳')
   check(button !== undefined, 'the panel offers an explicit way to re-read the device list')
   // A live list read a moment ago is not re-read on its own; asking outright must still work.
   equal(again.filter((call) => call.method === 'destinations').length, 0, 'nothing is asked for on its own')
@@ -2720,11 +2727,16 @@ section('the LLDB drawer')
     detailsMs: 87,
   }
   let sessionActive = false
+  // What the next tree read answers with, when a test needs a tree that cannot be drawn.
+  let treeOverride = null
   let fullJob = null
   // What the inspector asked for, and the edits it sent: the ops are the whole contract between the
   // panel and the app, so the tests read them the way the host would.
   const attributeReads = []
   const layoutReads = []
+  // How many times the canvas asked for the window's picture: once per tree read, and again on
+  // 刷新截图.
+  let windowReads = 0
   const edits = []
   let editSticks = true
   let history = [
@@ -2742,6 +2754,7 @@ section('the LLDB drawer')
   // snapshot taken before lines it has already shown.
   const sessionAt = (state) => ({ ...TREE.session, state, lineCount: transcript.length })
   let staleSnapshot = null
+  let screenAnswer = { ok: true, verdict: 'same', similarity: 0.92 }
   const calls = serve({
     state: () => ({ workspace: '/tmp', activeRunId: null, runs: [] }),
     doctor: () => ({ tools: [], missingRequired: [] }),
@@ -2753,7 +2766,8 @@ section('the LLDB drawer')
       if (body.op === 'processes') return { ok: true, processes: APPS, note: '' }
       if (body.op === 'attach') { sessionActive = true; sessionState = 'running'; return { ok: true, note: '', continued: true, session: sessionAt('running') } }
       if (body.op === 'detach') { sessionState = 'idle'; return { ok: true, note: '', session: sessionAt('idle') } }
-      if (body.op === 'view') { sessionActive = true; sessionState = 'stopped'; return { ...TREE, lookinAvailable } }
+      if (body.op === 'view') { sessionActive = true; sessionState = 'stopped'; return { ...(treeOverride ?? TREE), lookinAvailable } }
+      if (body.op === 'screen') return screenAnswer
       if (body.op === 'lookin') return { ok: true, path: TREE.lookinPath, note: 'opened in Lookin', session: sessionAt(sessionState) }
       if (body.op === 'lookinFull') { fullJob = { id: 1, stage: 'rendering', done: 40, total: 120, percent: 31, note: '', path: null, name: '', finished: false, cancelled: false, failed: false }; return { ok: true, job: fullJob } }
       if (body.op === 'lookinJob') return { ok: true, job: fullJob }
@@ -2773,6 +2787,10 @@ section('the LLDB drawer')
           rows: [{ label: 'Class', value: 'Example.StatusLight' }, { label: 'Frame', value: '0, 0  116.667×44' }],
           note: '',
         }
+      }
+      if (body.op === 'window') {
+        windowReads += 1
+        return { ok: true, note: '', image: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUg==' }
       }
       if (body.op === 'attributes') {
         attributeReads.push({ address: body.address, refresh: body.refresh === true })
@@ -2921,8 +2939,39 @@ section('the LLDB drawer')
   check(buttonNamed(container, 'Lookin') !== undefined, 'and Lookin is offered')
 
   // The priority feature: one click reads the running app's view tree.
-  const viewButton = Array.from(container.querySelectorAll('.xcb-btn')).find((node) => node.textContent === 'View Hierarchy')
+  const viewButton = Array.from(container.querySelectorAll('.xcb-btn, .xcb-ibtn')).find((node) => nameOf(node) === 'View Hierarchy')
   check(viewButton !== undefined, 'there is a View Hierarchy button')
+  // At rest it looks like every other icon: a filled or marked button reads as one already pressed.
+  check(viewButton !== undefined && !/\b(primary|running|on)\b/.test(viewButton.className),
+    'and at rest it is not drawn as pressed', viewButton?.className)
+  {
+    // While a read runs, the same button is the way to stop it, and is marked as such.
+    let release = null
+    const held = new Promise((resolve) => { release = resolve })
+    const slowCalls = []
+    const before = globalThis.fetch
+    globalThis.fetch = async (url, init) => {
+      const body = JSON.parse(init?.body ?? '{}')
+      if (body.op === 'view' && release !== null) {
+        slowCalls.push(body)
+        await held
+      }
+      return before(url, init)
+    }
+    let pending = null
+    await act(async () => {
+      pending = Promise.resolve(propsOf(viewButton).onClick())
+      await new Promise((resolve) => setTimeout(resolve, 30))
+    })
+    const reading = Array.from(container.querySelectorAll('.xcb-lldb-head .xcb-ibtn')).find((node) => node.classList.contains('xcb-lldb-view'))
+    check(slowCalls.length > 0, 'the read was held open to look at the button mid-read')
+    check(reading !== undefined && reading.classList.contains('running') && reading.getAttribute('data-tip') === '读取中，点击停止',
+      'while a read runs the button is marked as running and says a click stops it', reading?.className)
+    globalThis.fetch = before
+    release()
+    release = null
+    await act(async () => { await pending; await new Promise((resolve) => setTimeout(resolve, 60)) })
+  }
   await act(async () => {
     propsOf(viewButton).onClick()
     await new Promise((resolve) => setTimeout(resolve, 60))
@@ -2947,6 +2996,28 @@ section('the LLDB drawer')
   const drawn = Array.from(container.querySelectorAll('.xcb-lldb-row'))
   check(indent(drawn[1]) > indent(drawn[0]), 'a child is indented under its parent', `${String(indent(drawn[1]))} > ${String(indent(drawn[0]))}`)
   equal(indent(drawn[1]) - indent(drawn[0]), 14, 'by Lookin\'s own 14 pixels per level')
+
+  // -- reusing a tree by its screenshot ------------------------------------------
+  //
+  // The button is a request for the app as it is now, so it always reads; the screenshot check is for
+  // the looks nobody asked for. Hovering the button compares the screen and the stats say the verdict.
+  {
+    const pressed = calls.filter((call) => call.method === 'lldb' && call.body.op === 'view' && call.body.cacheOnly !== true).at(-1)
+    equal(pressed?.body.fresh, true, 'the read button always asks for a fresh tree')
+    const opened = calls.find((call) => call.method === 'lldb' && call.body.op === 'view' && call.body.cacheOnly === true)
+    check(opened !== undefined, 'opening the drawer first asks quietly for a tree read earlier')
+    check(container.querySelector('.xcb-lldb-fresh')?.textContent.includes('秒前读取'), 'the stats say how old the tree is',
+      container.querySelector('.xcb-lldb-fresh')?.textContent)
+    const hover = () => propsOf(Array.from(container.querySelectorAll('.xcb-lldb-head .xcb-ibtn')).find((node) => node.classList.contains('xcb-lldb-view'))).onMouseEnter()
+    await act(async () => { hover(); await new Promise((resolve) => setTimeout(resolve, 40)) })
+    const asked = calls.filter((call) => call.method === 'lldb' && call.body.op === 'screen')
+    equal(asked.length, 1, 'moving onto the read button compares the screen, without the debugger')
+    const fresh = container.querySelector('.xcb-lldb-fresh')
+    check(fresh?.classList.contains('same') && fresh.textContent.includes('界面未变 92%'), 'a screen still alike says so, with how alike', fresh?.textContent)
+    await act(async () => { hover(); await new Promise((resolve) => setTimeout(resolve, 40)) })
+    equal(calls.filter((call) => call.method === 'lldb' && call.body.op === 'screen').length, 1, 'and a second hover right after does not capture again')
+    check(!calls.slice(-3).some((call) => call.method === 'lldb' && call.body.op === 'view'), 'and none of this reads the tree')
+  }
 
   // The export is written as the tree is read, so the button opens a file that exists — and
   // the head knows which file, because the dump's own answer carried the path.
@@ -2981,15 +3052,15 @@ section('the LLDB drawer')
     const saved = sessionState
     sessionState = 'attaching'
     await act(async () => { await refreshLldbIn(container) })
-    const waiting = Array.from(container.querySelectorAll('.xcb-btn')).find((node) => node.textContent === 'Lookin')
+    const waiting = Array.from(container.querySelectorAll('.xcb-btn, .xcb-ibtn')).find((node) => nameOf(node) === 'Lookin')
     check(waiting !== undefined && waiting.disabled === true, 'during an attach the Lookin button cannot be pressed')
-    check(waiting !== undefined && /attach/i.test(waiting.getAttribute('title') ?? ''),
-      'and its title says it is waiting for the attach', waiting?.getAttribute('title'))
+    check(waiting !== undefined && /attach/i.test(waiting.getAttribute('data-hint') ?? ''),
+      'and its hover hint says it is waiting for the attach', waiting?.getAttribute('data-hint'))
     check(container.querySelector('.xcb-lldb-light.blink') !== null, 'while the light blinks yellow')
     sessionState = saved
     await act(async () => { await refreshLldbIn(container) })
   }
-  const lookinButton = Array.from(container.querySelectorAll('.xcb-btn')).find((node) => node.textContent === 'Lookin')
+  const lookinButton = Array.from(container.querySelectorAll('.xcb-btn, .xcb-ibtn')).find((node) => nameOf(node) === 'Lookin')
   check(lookinButton !== undefined, 'a read tree offers a Lookin button')
   check(lookinButton.disabled === false, 'and once the app is stopped it can be pressed again')
   check(lookinButton.className.includes('xcb-lldb-lookin'),
@@ -3010,7 +3081,7 @@ section('the LLDB drawer')
   check(container.querySelector('.xcb-lookin-popup') === null, 'and the popup goes away')
 
   // The full export runs in the background: progress is shown, and it can be cancelled.
-  await act(async () => { propsOf(Array.from(container.querySelectorAll('.xcb-btn')).find((node) => node.textContent === 'Lookin')).onClick() })
+  await act(async () => { propsOf(Array.from(container.querySelectorAll('.xcb-btn, .xcb-ibtn')).find((node) => nameOf(node) === 'Lookin')).onClick() })
   await act(async () => {
     propsOf(container.querySelector('.xcb-lookin-full')).onClick()
     await new Promise((resolve) => setTimeout(resolve, 60))
@@ -3039,7 +3110,7 @@ section('the LLDB drawer')
 
   // History: the kept trees, newest first, each openable and deletable.
   await act(async () => {
-    propsOf(Array.from(container.querySelectorAll('.xcb-btn')).find((node) => node.textContent === 'History')).onClick()
+    propsOf(Array.from(container.querySelectorAll('.xcb-btn, .xcb-ibtn')).find((node) => nameOf(node) === 'History')).onClick()
     await new Promise((resolve) => setTimeout(resolve, 60))
   })
   equal(container.querySelectorAll('.xcb-lookin-row').length, 2, 'History lists the kept trees')
@@ -3105,7 +3176,7 @@ section('the LLDB drawer')
   equal(detail.querySelector('.xcb-lldb-preview-canvas img').getAttribute('src'), 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUg==',
     'the group toggle shows the control with its subtree instead')
   // Zoom is arithmetic on the transform, so it costs no round trip and no stop.
-  const zoomIn = Array.from(detail.querySelectorAll('.xcb-btn')).find((node) => node.textContent === '+')
+  const zoomIn = Array.from(detail.querySelectorAll('.xcb-btn, .xcb-ibtn')).find((node) => node.textContent === '+')
   await act(async () => { propsOf(zoomIn).onClick() })
   check(/scale\(1\.25\)/.test(detail.querySelector('.xcb-lldb-preview-canvas img').getAttribute('style') ?? ''),
     'and zooming scales the image in place', detail.querySelector('.xcb-lldb-preview-canvas img').getAttribute('style'))
@@ -3248,7 +3319,7 @@ section('the LLDB drawer')
   check(container.querySelector('.xcb-lldb-tree') !== null && container.querySelector('.xcb-lldb-log') !== null,
     'with the tree and the console still there')
   check(container.querySelector('.xcb-log') === null && container.querySelector('.xcb-status') === null
-    && Array.from(container.querySelectorAll('.xcb-btn')).every((node) => node.textContent !== 'Build & Run'),
+    && Array.from(container.querySelectorAll('.xcb-btn, .xcb-ibtn')).every((node) => node.textContent !== 'Build & Run'),
     'and covers the build rows, the status and the build log rather than sitting below them')
   await act(async () => { propsOf(container.querySelector('.xcb-lldb-max')).onClick() })
   check(container.querySelector('.xcb-lldb.max') === null, 'clicking it again gives the panel back')
@@ -3314,6 +3385,167 @@ section('the LLDB drawer')
   check(rowMenuItem('退出聚焦') !== undefined, 'on the focused view the menu offers 退出聚焦 instead')
   await act(async () => { propsOf(rowMenuItem('退出聚焦')).onClick() })
   equal(container.querySelectorAll('.xcb-lldb-row').length, 4, 'which shows the whole hierarchy again')
+
+  // -- sideways scrolling ----------------------------------------------------
+  //
+  // Rows are absolutely placed and only the ones in view exist, so the scroll area cannot learn its
+  // width from them: it is given the widest row's, and a deep row can be scrolled to and read whole.
+  {
+    const pad = container.querySelector('.xcb-lldb-treepad')
+    const width = Number.parseFloat(pad?.style.minWidth ?? '')
+    check(Number.isFinite(width) && width > 0, 'the tree\u2019s rows are given a width to scroll across', pad?.style.minWidth)
+    const label = Array.from(container.querySelectorAll('.xcb-lldb-row .xcb-lldb-class')).find((node) => node.textContent === 'Example.StatusLight')
+    check(label !== undefined, 'a deep row is drawn in full, not cut by the column')
+    await act(async () => { propsOf(Array.from(container.querySelectorAll('.xcb-lldb-row')).find((node) => node.textContent.includes('UIStackView'))).onDoubleClick() })
+    const focusedWidth = Number.parseFloat(container.querySelector('.xcb-lldb-treepad')?.style.minWidth ?? '')
+    check(focusedWidth < width, 'and focusing a subtree re-bases the indent, so its width shrinks with it', [width, focusedWidth])
+    await act(async () => { propsOf(Array.from(container.querySelectorAll('.xcb-lldb-row')).find((node) => node.textContent.includes('UIStackView'))).onDoubleClick() })
+    const sheet = Array.from(document.querySelectorAll('style')).map((node) => node.textContent).join('')
+    check(/\.xcb-lldb-class\{flex:0 0 auto/.test(sheet), 'the class name keeps its width instead of shrinking to an ellipsis')
+  }
+
+  // -- the 2D / 3D canvas ----------------------------------------------------
+  //
+  // Lookin's preview without the images: every view a box at its place on screen, flat or pulled
+  // apart by depth, picked by clicking it.
+  {
+    const planes = () => Array.from(container.querySelectorAll('.xcb-lldb-plane'))
+    const plane = (address) => planes().find((node) => node.getAttribute('data-address') === address)
+    check(container.querySelector('.xcb-lldb-stage') !== null, 'a tree read shows the canvas beside it')
+    equal(planes().map((node) => node.getAttribute('data-address')).join(','), '0x1,0x2,0x3',
+      'with one box per visible view, the hidden one left out')
+    check(plane('0x3').style.transform.startsWith('translate3d(0px, 55px,'),
+      'each box placed on screen by adding up its ancestors\u2019 origins', plane('0x3').style.transform)
+    equal(plane('0x3').style.width, '116.667px', 'and sized by its frame')
+    check(plane('0x2').className.includes('picked'), 'the picked view is highlighted on the canvas too')
+
+    // The window's own picture, under the boxes: Lookin's preview. It is a picture in the world's
+    // own coordinates — the tree's root frame — so a focused subtree still lines up with it.
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 40)) })
+    // How many reads of the picture this read has cost so far; the checks below are about their
+    // difference, because the fixture reads the tree more than once.
+    const shotReads = windowReads
+    const backdrop = container.querySelector('.xcb-lldb-backdrop')
+    check(backdrop !== null, 'the tree read fetches the window\u2019s own picture and draws it under the boxes')
+    equal(backdrop?.style.width, '390px', 'sized to the window the frames are measured in')
+    equal(backdrop?.style.height, '844px', 'both ways')
+    check((backdrop?.style.backgroundImage ?? '').includes('data:image/png;base64,'),
+      'with the host\u2019s bytes as its background', backdrop?.style.backgroundImage)
+    check(shotReads >= 1, 'asking for it at all, once per read of the tree', shotReads)
+    await act(async () => {
+      propsOf(container.querySelector('.xcb-lldb-plane')).onClick({ stopPropagation() {} })
+      await new Promise((resolve) => setTimeout(resolve, 40))
+    })
+    check(windowReads === shotReads, 'a re-render or a pick does not ask again', [shotReads, windowReads])
+
+    // 截图 turns it off, and 刷新截图 reads it again.
+    const shotBox = Array.from(container.querySelectorAll('.xcb-lldb-canvas-check'))
+      .find((label) => label.textContent === '截图')?.querySelector('input')
+    check(shotBox !== undefined, 'the toolbar carries a 截图 switch')
+    await act(async () => { propsOf(shotBox).onChange() })
+    equal(container.querySelector('.xcb-lldb-backdrop'), null, 'turning it off leaves the boxes on their own')
+    await act(async () => { propsOf(shotBox).onChange() })
+    const refresh = Array.from(container.querySelectorAll('.xcb-lldb-quick')).find((node) => node.textContent === '刷新截图')
+    check(refresh !== undefined, 'and a 刷新截图 button beside it')
+    await act(async () => {
+      propsOf(refresh).onClick()
+      await new Promise((resolve) => setTimeout(resolve, 40))
+    })
+    equal(windowReads, shotReads + 1, 'which reads the picture again')
+
+    // A box with room for a name says what it is.
+    check(plane('0x3')?.querySelector('.xcb-lldb-plane-tag')?.textContent === 'Example.StatusLight',
+      'a box big enough on screen is labelled with its class')
+    check(plane('0x4') === undefined, 'and the hidden view is still left out, so it has no label either', plane('0x4'))
+
+    // A canvas with nothing to draw says so, with the numbers that explain it: an empty stage that
+    // only looks black is what made "the canvas shows nothing" indistinguishable from a bug.
+    treeOverride = { ...TREE, records: [{ ...RECORDS[0], frame: null }] }
+    const readButton = buttonNamed(container, 'View Hierarchy')
+    await act(async () => {
+      propsOf(readButton).onClick()
+      await new Promise((resolve) => setTimeout(resolve, 60))
+    })
+    equal(container.querySelector('.xcb-lldb-stage-note')?.textContent?.includes('这一层树里没有可以画出来的视图'), true,
+      'a tree with nothing to draw says so on the stage', container.querySelector('.xcb-lldb-stage-note')?.textContent)
+    check((container.querySelector('.xcb-lldb-stage-note')?.textContent ?? '').includes('1 条没有 frame'),
+      'and names how many records had no frame for it', container.querySelector('.xcb-lldb-stage-note')?.textContent)
+    treeOverride = null
+    await act(async () => {
+      propsOf(readButton).onClick()
+      await new Promise((resolve) => setTimeout(resolve, 60))
+    })
+    check(container.querySelector('.xcb-lldb-stage-note') === null && planes().length === 3,
+      'and reads the real tree back when it is there again', planes().length)
+
+    const hiddenBox = Array.from(container.querySelectorAll('.xcb-lldb-canvas-check input'))[0]
+    await act(async () => { propsOf(hiddenBox).onChange() })
+    check(plane('0x4') !== undefined && plane('0x4').className.includes('hiddenview'), '隐藏视图 draws the hidden view, marked as hidden')
+    await act(async () => { propsOf(Array.from(container.querySelectorAll('.xcb-lldb-canvas-check input'))[0]).onChange() })
+
+    // Clicking a box is clicking its row.
+    await act(async () => {
+      propsOf(plane('0x3')).onClick({ stopPropagation() {} })
+      await new Promise((resolve) => setTimeout(resolve, 40))
+    })
+    check(container.querySelector('.xcb-lldb-row.picked')?.textContent.includes('StatusLight'), 'clicking a box picks that view in the tree')
+    check(plane('0x3').className.includes('picked'), 'and highlights it')
+
+    // 2D is flat: every box at z 0 (plus the hair that keeps equal levels apart).
+    const zOf = (address) => Number(/,\s*([-\d.e]+)px\)$/.exec(plane(address).style.transform)?.[1])
+    check(Math.abs(zOf('0x3') - zOf('0x1')) < 0.01, '2D keeps every layer in one plane')
+    await act(async () => {
+      propsOf(Array.from(container.querySelectorAll('.xcb-lldb-seg button')).find((node) => node.textContent === '3D')).onClick()
+    })
+    check(zOf('0x3') > zOf('0x2') && zOf('0x2') > zOf('0x1'), '3D stands each overlapping view one level in front of the one it covers',
+      [zOf('0x1'), zOf('0x2'), zOf('0x3')])
+    check(/rotateX\(18deg\) rotateY\(-28deg\)/.test(container.querySelector('.xcb-lldb-world').style.transform),
+      'and turns the stack so the depth can be seen')
+    check(container.querySelector('.xcb-lldb-canvas-space') !== null, 'with a slider for the layer spacing')
+    const before = zOf('0x3') - zOf('0x1')
+    await act(async () => { propsOf(container.querySelector('.xcb-lldb-canvas-space')).onChange({ target: { value: '1' } }) })
+    check(zOf('0x3') - zOf('0x1') > before, 'which pulls the layers further apart')
+
+    // Double-click focuses, as on a row: the canvas then draws that subtree alone.
+    await act(async () => { propsOf(plane('0x2')).onDoubleClick({ stopPropagation() {} }) })
+    equal(planes().map((node) => node.getAttribute('data-address')).join(','), '0x2,0x3', 'double-clicking a box focuses it, on the canvas as in the tree')
+    equal(container.querySelectorAll('.xcb-lldb-row').length, 2, 'and the tree follows')
+    await act(async () => { propsOf(plane('0x2')).onDoubleClick({ stopPropagation() {} }) })
+
+    // Right-click opens the same menu the rows have.
+    await act(async () => {
+      propsOf(plane('0x2')).onContextMenu({ preventDefault() {}, stopPropagation() {}, clientX: 30, clientY: 30 })
+      await new Promise((resolve) => setTimeout(resolve, 40))
+    })
+    check(container.querySelector('.xcb-lldb-rowmenu .xcb-ctxmenu-item')?.textContent === '聚焦', 'right-clicking a box opens the view menu')
+    await act(async () => { document.dispatchEvent(new dom.window.MouseEvent('mousedown', { bubbles: true })) })
+
+    // Back to 2D faces the screen again. The canvas has no switch of its own: a read tree is always
+    // drawn, and it is the columns beside it that come and go.
+    await act(async () => {
+      propsOf(Array.from(container.querySelectorAll('.xcb-lldb-seg button')).find((node) => node.textContent === '2D')).onClick()
+    })
+    check(/rotateX\(0deg\) rotateY\(0deg\)/.test(container.querySelector('.xcb-lldb-world').style.transform), '2D faces the screen square-on again')
+    check(Array.from(container.querySelectorAll('.xcb-lldb-tab')).every((node) => node.textContent !== '画布'), 'the canvas has no show/hide switch')
+    const tabNamed = (label) => Array.from(container.querySelectorAll('.xcb-lldb-treesec .xcb-lldb-canvas-bar .xcb-lldb-tab')).find((node) => node.textContent === label)
+    check(container.querySelector('.xcb-lldb-treesec > .xcb-lldb-canvas-bar .xcb-lldb-seg') !== null,
+      'the canvas controls sit in the view tree’s own toolbar row')
+    await act(async () => { propsOf(tabNamed('检查器')).onClick() })
+    equal(container.querySelector('.xcb-lldb-insp'), null, '检查器 hides the attributes / layout / preview column')
+    check(container.querySelector('.xcb-lldb-stage') !== null && container.querySelector('.xcb-lldb-treecol') !== null, 'leaving the tree and the canvas')
+    await act(async () => { propsOf(tabNamed('检查器')).onClick() })
+    check(container.querySelector('.xcb-lldb-insp') !== null, 'and brings it back')
+
+    // Put the pick back on the stack view, where the checks below expect it. (The right-click above
+    // already picked it, so it is only clicked when something else is picked.)
+    if (!container.querySelector('.xcb-lldb-row.picked')?.textContent.includes('UIStackView')) {
+      await act(async () => {
+        propsOf(Array.from(container.querySelectorAll('.xcb-lldb-row')).find((node) => node.textContent.includes('UIStackView'))).onClick()
+        await new Promise((resolve) => setTimeout(resolve, 40))
+      })
+    }
+    check(container.querySelector('.xcb-lldb-row.picked')?.textContent.includes('UIStackView'), 'right-clicking a box picked it, as a row does')
+  }
 
   // A picked view becomes the command bar's object: a chip names it, one-click commands act on it,
   // and `$v` in a typed command stands for it.
@@ -3393,18 +3625,18 @@ section('the LLDB drawer')
   {
     lookinAvailable = false
     await act(async () => {
-      propsOf(Array.from(container.querySelectorAll('.xcb-btn')).find((node) => node.textContent === 'View Hierarchy')).onClick()
+      propsOf(Array.from(container.querySelectorAll('.xcb-btn, .xcb-ibtn')).find((node) => nameOf(node) === 'View Hierarchy')).onClick()
       await new Promise((resolve) => setTimeout(resolve, 80))
     })
-    const bare = Array.from(container.querySelectorAll('.xcb-btn'))
-    check(bare.every((node) => node.textContent !== 'Lookin'),
+    const bare = Array.from(container.querySelectorAll('.xcb-btn, .xcb-ibtn'))
+    check(bare.every((node) => nameOf(node) !== 'Lookin'),
       'a host without Lookin.app offers no Lookin button')
-    const reveal = bare.find((node) => node.textContent === 'Reveal')
+    const reveal = bare.find((node) => nameOf(node) === 'Reveal')
     check(reveal !== undefined, 'and offers Reveal in the same slot instead')
     check(reveal !== undefined && reveal.className.includes('xcb-lldb-lookin'),
       'in the drawer\'s own control class', reveal === undefined ? '(none)' : reveal.className)
-    check(reveal !== undefined && reveal.getAttribute('title').includes('not installed'),
-      'with a title that says why it is not called Lookin', reveal === undefined ? '(none)' : reveal.getAttribute('title'))
+    check(reveal !== undefined && reveal.getAttribute('data-tip').includes('未安装'),
+      'with a hover tip that says why it is not called Lookin', reveal === undefined ? '(none)' : reveal.getAttribute('data-tip'))
     lookinAvailable = true
   }
 
@@ -3430,9 +3662,9 @@ section('the LLDB drawer')
   equal(container.querySelectorAll('.xcb-lldb-row').length, 4, 'Escape clears the search and the whole tree is back')
   // A dump leaves the app stopped, so Continue has to be there to let it go again —
   // otherwise the only way out of a stopped app would be to detach.
-  const continueButton = Array.from(container.querySelectorAll('.xcb-btn')).find((node) => node.textContent === 'Continue')
+  const continueButton = Array.from(container.querySelectorAll('.xcb-btn, .xcb-ibtn')).find((node) => nameOf(node) === 'Continue')
   check(continueButton !== undefined, 'a stopped app offers Continue')
-  check(Array.from(container.querySelectorAll('.xcb-btn')).every((node) => node.textContent !== 'Interrupt'),
+  check(Array.from(container.querySelectorAll('.xcb-btn, .xcb-ibtn')).every((node) => nameOf(node) !== 'Interrupt'),
     'and not Interrupt, which is for the running case')
   await act(async () => {
     propsOf(continueButton).onClick()
@@ -3442,7 +3674,7 @@ section('the LLDB drawer')
     'which resumes the app through the session it is already attached to')
   check(container.textContent.includes('running'), 'and the head says the app is running again',
     container.querySelector('.xcb-lldb-state')?.textContent)
-  const interruptButton = Array.from(container.querySelectorAll('.xcb-btn')).find((node) => node.textContent === 'Interrupt')
+  const interruptButton = Array.from(container.querySelectorAll('.xcb-btn, .xcb-ibtn')).find((node) => nameOf(node) === 'Interrupt')
   check(interruptButton !== undefined, 'so Interrupt appears where Continue was')
   await act(async () => {
     propsOf(interruptButton).onClick()
@@ -3505,14 +3737,23 @@ section('the LLDB drawer')
       'and it floats over the transcript rather than scrolling inside it')
     check(log.parentElement?.parentElement?.className.includes('xcb-lldb-logsec') === true,
       'the transcript sits in its own section under the tree, and is what scrolls there')
-    // The Tree button folds the tree section away and brings it back; the log stays either way.
-    const treeToggle = Array.from(container.querySelectorAll('.xcb-lldb-tab')).find((node) => node.textContent === 'Tree')
+    // The Tree button folds the whole view-tree section away and brings it back; the log stays either way.
+    const treeToggle = Array.from(container.querySelectorAll('.xcb-lldb-head .xcb-ibtn')).find((node) => nameOf(node) === 'Tree')
     check(treeToggle !== undefined && treeToggle.className.includes(' on'), 'the Tree button shows the tree section is open')
     await act(async () => { propsOf(treeToggle).onClick() })
-    equal(container.querySelector('.xcb-lldb-treesec'), null, 'clicking Tree hides the tree section')
+    equal(container.querySelector('.xcb-lldb-treesec'), null, 'clicking Tree hides the whole section — toolbar, tree, canvas and inspector')
     check(container.querySelector('.xcb-lldb-logsec .xcb-lldb-log') !== null, 'and the log stays, taking the room')
-    await act(async () => { propsOf(Array.from(container.querySelectorAll('.xcb-lldb-tab')).find((node) => node.textContent === 'Tree')).onClick() })
+    await act(async () => { propsOf(Array.from(container.querySelectorAll('.xcb-lldb-head .xcb-ibtn')).find((node) => nameOf(node) === 'Tree')).onClick() })
     check(container.querySelector('.xcb-lldb-treesec') !== null, 'clicking it again brings the tree back above the log')
+    // Its columns are switched from the section's own toolbar, not the drawer's head.
+    const columnTab = (label) => Array.from(container.querySelectorAll('.xcb-lldb-treesec .xcb-lldb-canvas-bar .xcb-lldb-tab')).find((node) => node.textContent === label)
+    check(Array.from(container.querySelectorAll('.xcb-lldb-head .xcb-ibtn')).every((node) => !['图层树', '检查器'].includes(nameOf(node))),
+      'the drawer head carries no column switches')
+    await act(async () => { propsOf(columnTab('图层树')).onClick() })
+    equal(container.querySelector('.xcb-lldb-treecol'), null, '图层树 in the toolbar hides the tree column')
+    check(container.querySelector('.xcb-lldb-stage') !== null, 'and the canvas takes the room')
+    await act(async () => { propsOf(columnTab('图层树')).onClick() })
+    check(container.querySelector('.xcb-lldb-treecol') !== null, 'clicking it again brings the tree column back')
     equal(jump?.textContent, '↓ Latest', 'which says it goes to the latest output')
     await act(async () => { propsOf(jump).onClick() })
     equal(log.scrollTop, 1000, 'clicking it scrolls to the newest line')
@@ -3527,6 +3768,16 @@ section('the LLDB drawer')
     equal([menu?.style.left, menu?.style.top], ['40px', '30px'], 'it opens at the pointer, in viewport coordinates')
     const sheet = Array.from(document.querySelectorAll('style')).map((node) => node.textContent).join('')
     check(/\.xcb-ctxmenu\{position:fixed;z-index:2147483000/.test(sheet), 'as a fixed layer above everything, so a short log cannot clip it')
+    // With the view tree shown the log keeps three lines and the tree section takes the rest.
+    check(/\.xcb-lldb-treesec\{flex:1 1 auto/.test(sheet) && /\.xcb-lldb-treesec\+\.xcb-lldb-logsec\{flex:0 0 58px/.test(sheet),
+      'the tree section takes all but three lines of log')
+    // The head's icon buttons name themselves on a short delayed hover, in a tip of the panel's own.
+    const headButtons = Array.from(container.querySelectorAll('.xcb-lldb-head .xcb-ibtn'))
+    check(headButtons.length > 0 && headButtons.every((node) => (node.getAttribute('data-tip') ?? '') !== '' && node.getAttribute('aria-label') !== null),
+      'every head icon has a short hover tip and an accessible name', headButtons.map((node) => node.getAttribute('data-tip')).join(' | '))
+    check(headButtons.every((node) => node.getAttribute('title') === null), 'and no native title to stack a second tooltip on it')
+    check(/\.xcb-ibtn\[data-tip\]:hover::after\{opacity:1;visibility:visible;transition:opacity \.12s ease \.45s/.test(sheet),
+      'the tip shows after a short wait on hover')
     await act(async () => { propsOf(log).onContextMenu({ preventDefault() {}, clientX: window.innerWidth - 5, clientY: window.innerHeight - 5, currentTarget: log }) })
     const flipped = container.querySelector('.xcb-lldb-ctxmenu')
     check(Number.parseFloat(flipped.style.left) < window.innerWidth - 5 && Number.parseFloat(flipped.style.top) < window.innerHeight - 5,
@@ -3586,7 +3837,7 @@ section('the LLDB drawer')
     await new Promise((resolve) => setTimeout(resolve, 60))
   })
   check(secondRender.container.querySelector('.xcb-lldb-error') !== null, 'a failed command is reported in the drawer')
-  check(Array.from(secondRender.container.querySelectorAll('.xcb-btn')).every((node) => node.textContent !== 'Take over'),
+  check(Array.from(secondRender.container.querySelectorAll('.xcb-btn, .xcb-ibtn')).every((node) => nameOf(node) !== 'Take over'),
     'and a failed COMMAND does not offer to take the app over: only a failed dump does')
   const errRow = secondRender.container.querySelector('.xcb-err')
   check(errRow === null || errRow.textContent.includes('undeclared identifier') === false,
@@ -3626,14 +3877,14 @@ section('the LLDB drawer')
     fourthRender.container.querySelector('.xcb-lldb-toggle').dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
   })
   await mountApp(fourthRender.container)
-  const fourthView = Array.from(fourthRender.container.querySelectorAll('.xcb-btn')).find((node) => node.textContent === 'View Hierarchy')
+  const fourthView = Array.from(fourthRender.container.querySelectorAll('.xcb-btn, .xcb-ibtn')).find((node) => nameOf(node) === 'View Hierarchy')
   await act(async () => {
     propsOf(fourthView).onClick()
     await new Promise((resolve) => setTimeout(resolve, 80))
   })
-  const takeOver = Array.from(fourthRender.container.querySelectorAll('.xcb-btn')).find((node) => node.textContent === 'Take over')
+  const takeOver = Array.from(fourthRender.container.querySelectorAll('.xcb-btn, .xcb-ibtn')).find((node) => nameOf(node) === 'Take over')
   check(takeOver !== undefined, 'a failed dump offers to take the app over', fourthRender.container.querySelector('.xcb-lldb-error')?.textContent)
-  check(takeOver === undefined || /relaunch/i.test(String(propsOf(takeOver).title)),
+  check(takeOver === undefined || /重启/.test(String(takeOver.getAttribute('data-tip'))),
     'and says that taking over relaunches the app')
   await act(async () => {
     propsOf(takeOver).onClick()
@@ -3684,11 +3935,11 @@ section('the LLDB drawer')
   })
   await mountApp(guardedRender.container)
   await act(async () => {
-    propsOf(Array.from(guardedRender.container.querySelectorAll('.xcb-btn')).find((node) => node.textContent === 'View Hierarchy')).onClick()
+    propsOf(Array.from(guardedRender.container.querySelectorAll('.xcb-btn, .xcb-ibtn')).find((node) => nameOf(node) === 'View Hierarchy')).onClick()
     await new Promise((resolve) => setTimeout(resolve, 80))
   })
-  const guardedButtons = Array.from(guardedRender.container.querySelectorAll('.xcb-btn'))
-  check(guardedButtons.some((node) => node.textContent === 'Take over'),
+  const guardedButtons = Array.from(guardedRender.container.querySelectorAll('.xcb-btn, .xcb-ibtn'))
+  check(guardedButtons.some((node) => nameOf(node) === 'Take over'),
     'a refused attach offers the relaunch that is its remedy')
   const guardedNotes = Array.from(guardedRender.container.querySelectorAll('.xcb-lldb-note, .xcb-lldb-error'))
     .map((node) => node.textContent)
@@ -3738,8 +3989,8 @@ section('the LLDB drawer')
     'and the handle says a debugger is holding the app',
     thirdRender.container.querySelector('.xcb-lldb-toggle').className)
 
-  const closeDrawer = Array.from(thirdRender.container.querySelectorAll('.xcb-lldb-head .xcb-btn'))
-    .find((node) => node.textContent === '✕')
+  const closeDrawer = Array.from(thirdRender.container.querySelectorAll('.xcb-lldb-head .xcb-ibtn'))
+    .find((node) => node.getAttribute('aria-label') === 'Close')
   check(closeDrawer !== undefined, 'the drawer can be closed from its own head')
   await act(async () => { propsOf(closeDrawer).onClick() })
   check(thirdRender.container.querySelector('.xcb-lldb') === null, 'closing it hides the drawer, not the session')

@@ -90,6 +90,20 @@ can take the prompt over from there. `⤢` gives the drawer the whole panel (and
 the panel itself is resizable by its corner), and a double-click on a row focuses that view's
 subtree.
 
+**The canvas shows the app, with the view frames on it.** Between the tree and the inspector sits
+Lookin's preview, built the same way — from LLDB alone. It is the window's own picture, rendered
+inside the app while it is stopped (one view, scale 1, one short stop) and drawn in the canvas's own
+coordinates, so it zooms, turns and pans with the boxes; `2D` shows the frames flat, `3D` pulls them
+apart by overlap depth and a drag turns the stack, `隐藏视图` draws the hidden ones dashed, and a
+box carries its class name when it is big enough on screen to hold one. Clicking a box picks that
+view, a double-click focuses it, a right-click opens the row's menu — and `截图` turns the picture
+off for a pure frame drawing, `刷新截图` reads it again. Rendering the app's own layer is also what
+fixes what used to be invisible here: **no CoreGraphics struct may be a value in an LLDB expression
+on Xcode 26** (`error: attempt to use a deleted function` for `CGSize size = [layer frame].size` and
+for `CGRectMake`, in every language mode), so the geometry travels as four doubles out of `NSValue`
+and the context is a bitmap context — which is what made the per-view images real rather than always
+falling back to a cropped screenshot.
+
 **An inspector beside the tree, built on LLDB alone.** Picking a view opens three panes and no
 Lookin server anywhere. They are drawn from **one read**: the stop that reads the tree also reads
 every view's attributes and layout, and a click afterwards costs nothing — no second attach, no

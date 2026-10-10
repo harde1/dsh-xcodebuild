@@ -276,6 +276,30 @@ const lldbRoute = registeredRoutes.find((route) => route.path.endsWith('/lldb'))
   equal(Array.isArray(node.rows) && node.rows.length, 0, 'with no rows invented for it')
   equal(node.image.solo ?? '', '', 'and no image')
   check(/View Hierarchy/.test(String(answer.note)), 'and the refusal names the action that writes the file', res.body)
+
+  // The canvas's backdrop: the window's own image, asked for by name and answered the same way
+  // whether or not there is anything to read. Nothing is attached here, so it refuses — with a
+  // note the canvas can show as "no picture", never with a device that has no name.
+  const shot = fakeResponse()
+  await lldbRoute.handler(fakeRequest({ body: JSON.stringify({ sessionId: 'lookin-none', op: 'window' }) }), shot)
+  const window = JSON.parse(shot.body)
+  equal(window.ok, false, 'op=window with nothing attached is refused')
+  equal(window.image, '', 'with no image')
+  check(String(window.note).length > 0, 'and a note the canvas can show instead of a picture', window.note)
+  equal(/the device  \(/.test(String(window.note)), false, 'and never a device with no name')
+
+  // The screenshot reuse: with no tree read yet there is nothing to reuse, and asking about it must
+  // neither capture nor touch the debugger — it just says so.
+  const screen = fakeResponse()
+  await lldbRoute.handler(fakeRequest({ body: JSON.stringify({ sessionId: 'lookin-none', op: 'screen', destination: 'platform=iOS Simulator,id=NONE' }) }), screen)
+  const looked = JSON.parse(screen.body)
+  equal(looked.verdict, 'none', 'op=screen before any read has nothing to compare against')
+  const quiet = fakeResponse()
+  await lldbRoute.handler(fakeRequest({ body: JSON.stringify({ sessionId: 'lookin-none', op: 'view', cacheOnly: true, destination: 'platform=iOS Simulator,id=NONE' }) }), quiet)
+  const restored = JSON.parse(quiet.body)
+  equal(restored.ok, false, 'a cache-only look with nothing cached does not read')
+  equal(restored.verdict, 'none', 'and says there was nothing to reuse')
+  check(lldbTool.parameters.properties.fresh?.type === 'boolean', 'the model\u2019s tool can ask for a fresh tree')
 }
 
 // An unnamed read with nothing attached is answered as "nothing to read from", not as a device
