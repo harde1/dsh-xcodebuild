@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.6.10
+
+### Fixed
+
+- **The view tree is read on a target whose UIKit module cannot be imported.** `recursiveDescription`
+  is a private method no header declares, so with no module loaded the evaluator has no return type
+  for the send and refuses the expression:
+  `no known method '-recursiveDescription'; cast the message send to the method's return type`. The
+  result is now cast to `NSString *`, which is exactly what that message asks for and is inert where
+  the method IS known — measured on an iPhone 17 simulator in a session that had imported nothing,
+  where the casted send evaluated and parsed 96 records. Without a tree there are no boxes on the
+  canvas at all, which is what such a device looked like.
+- **And the screen probe beside it names no `CGRect`.** It read `CGRect b = (CGRect)[… bounds]`, which
+  is the same trap twice over: a struct may not be a VALUE in an expression on Xcode 26, and a
+  declaration whose type the evaluator does not know is dropped on a headerless target — after which
+  the name is unresolved and the linker reports a symbol collision instead of the missing type. The
+  bounds now come out of `NSValue` as four doubles, and its locals are prefixed (`xcbBounds`,
+  `xcbBox`, `xcbScale`) the way this file already had to learn: an unprefixed `names` once answered
+  `Multiple internal symbols found for 'names'` against a live app.
+
 ## 0.6.9
 
 ### Fixed

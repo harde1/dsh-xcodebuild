@@ -258,6 +258,15 @@ section('the class chain is probed once per class')
   check(batch.includes('@"UILabel,Mod.Cell,EvilClass"'), 'names travel as one literal, quotes stripped and junk names dropped')
   check(!/\bNSArray \*names\b/.test(batch) && batch.includes('xcbNames'), 'locals are prefixed: a plain `names` collided with the app\'s own symbol')
   check(classChainsExpression([]).includes('[NSArray array]'), 'no unknown classes still asks for the screen')
+  // The bounds are read as NSValue into four doubles. A `CGRect` local is what this used to be, and a
+  // struct may not be a VALUE in an LLDB expression on Xcode 26 while a declaration whose type the
+  // evaluator does not know is dropped outright on a target without headers — leaving the name
+  // unresolved, which arrives as a symbol collision rather than as a type error.
+  const chains = classChainsExpression(['UILabel'])
+  eq(/\bCGRect\b/.test(chains), false, 'the screen probe names no CGRect')
+  check(chains.includes('NSValue *xcbBounds'), 'it reads bounds through NSValue')
+  check(chains.includes('double xcbBox[4] = {0, 0, 0, 0}'), 'into four doubles')
+  check(chains.includes('double xcbScale = (double)[(id)[UIScreen mainScreen] scale]'), 'and prefixes every local, which is the rule that past collision taught')
   const report = parseChainsReport('SCREEN 402 874 3\nCHAIN UILabel,UIView,UIResponder,NSObject\nCHAIN \nCHAIN UIView,UIResponder,NSObject', ['UILabel', 'Gone', 'UIView', 'bad name'])
   eq(report.screen, { width: 402, height: 874, scale: 3 }, 'the screen is read from the report')
   eq(report.chains, { UILabel: ['UILabel', 'UIView', 'UIResponder', 'NSObject'], Gone: null, UIView: ['UIView', 'UIResponder', 'NSObject'] },

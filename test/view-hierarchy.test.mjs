@@ -54,6 +54,16 @@ const RAW = [
   '(lldb) po [[[[UIApplication sharedApplication] windows] firstObject] recursiveDescription]',
 ].join('\n')
 
+// --- the expression --------------------------------------------------------
+
+// The cast is load-bearing on a target whose UIKit module cannot be imported: `recursiveDescription`
+// is private, so an uncast send has no return type to be typed with and the evaluator refuses the
+// whole expression (`no known method '-recursiveDescription'; cast the message send to the method's
+// return type`). With the cast the same send evaluates — measured on an iPhone 17 simulator in a
+// session that had imported nothing — and where the method IS known the cast changes nothing.
+check(VIEW_HIERARCHY_EXPRESSION.startsWith('po (NSString *)'), 'the tree expression casts the private send to NSString', VIEW_HIERARCHY_EXPRESSION)
+eq(/^po \[\[\[/.test(VIEW_HIERARCHY_EXPRESSION), false, 'and never sends it untyped')
+
 // --- one line --------------------------------------------------------------
 
 section('a view line becomes a record')
