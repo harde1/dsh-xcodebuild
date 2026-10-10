@@ -1082,7 +1082,7 @@ section('the run log has the same right-click menu as the debugger transcript')
   const menu = container.querySelector('.xcb-log-ctxmenu')
   check(menu !== null && menu.className.includes('xcb-ctxmenu'), 'a right-click opens the shared menu, fixed above the panel')
   equal(Array.from(menu?.querySelectorAll('.xcb-ctxmenu-item') ?? []).map((item) => item.firstChild.textContent),
-    ['Select All', 'Copy', 'Clear'], 'with the same three entries')
+    ['Select All', 'Copy', '添到聊天', 'Clear'], 'with the same entries, 添到聊天 among them')
   equal([menu?.style.left, menu?.style.top], ['50px', '60px'], 'at the pointer')
   const lastBefore = Math.max(...Array.from(container.querySelectorAll('.xcb-line .xcb-num')).map((node) => Number(node.textContent)))
   await act(async () => { propsOf(Array.from(menu.querySelectorAll('.xcb-ctxmenu-item')).find((item) => item.textContent === 'Clear')).onClick() })
@@ -1093,6 +1093,68 @@ section('the run log has the same right-click menu as the debugger transcript')
   const numbers = Array.from(container.querySelectorAll('.xcb-line .xcb-num')).map((node) => Number(node.textContent))
   check(numbers.length > 0 && numbers.every((n) => n > lastBefore),
     'new lines still arrive after it, and the cleared ones stay gone', `${numbers.join(',')} after ${String(lastBefore)}`)
+}
+
+section('添到聊天 tells the AI where a log line, an error and a view come from')
+{
+  serve({
+    state: () => ({ workspace: '/tmp', activeRunId: 'run-9', runs: [] }),
+    poll: (body) => ({
+      missing: false,
+      lines: body.from > 3 ? [] : [1, 2, 3].filter((n) => n >= body.from).map((n) => ({ n, k: n === 2 ? 'error' : 'plain', t: n === 2 ? '/src/A.swift:12:5: error: boom' : `line ${n}` })),
+      next: 4,
+      status: 'failed',
+      exitCode: 65,
+      warningCount: 0,
+      errors: ['/src/A.swift:12:5: error: boom'],
+      durationMs: 1000,
+    }),
+    detect: (body) => ({ kind: 'workspace', root: '/tmp', location: body.path, name: 'P', schemes: [], configurations: [], sweetpadDefaults: {} }),
+    destinations: () => ({ destinations: [] }),
+  })
+  // No conversation service: the text goes into the composer's own editable, which shows exactly what the AI receives.
+  const editable = document.createElement('div')
+  editable.setAttribute('data-composer-input', '')
+  editable.setAttribute('contenteditable', 'true')
+  document.body.appendChild(editable)
+  // jsdom has no editing commands; the browser's insertText appends at the caret, here the end.
+  const execBefore = document.execCommand
+  document.execCommand = (name, _ui, value) => { if (name !== 'insertText') return false; editable.textContent += value; return true }
+  const instance = mount({})
+  const overlay = instance.components.get('dsh-xcodebuild-panel')
+  const toggle = instance.components.get('dsh-xcodebuild-toggle')
+  const { container } = await render([
+    React.createElement(overlay.component, { key: 'overlay' }),
+    React.createElement(toggle.component, { key: 'toggle', sessionId: 'sess-chatref' }),
+  ])
+  await act(async () => {
+    container.querySelector('.xcb-trigger').dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+  })
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 700)) })
+  const log = container.querySelector('.xcb-log')
+  const errorLine = Array.from(container.querySelectorAll('.xcb-line')).find((node) => node.textContent.includes('boom'))
+  check(errorLine !== undefined, 'the log shows the error line')
+  await act(async () => { propsOf(log).onContextMenu({ preventDefault() {}, clientX: 20, clientY: 20, target: errorLine.querySelector('.xcb-txt'), currentTarget: log }) })
+  const chatItem = Array.from(container.querySelectorAll('.xcb-log-ctxmenu .xcb-ctxmenu-item')).find((node) => node.firstChild.textContent === '添到聊天')
+  check(chatItem !== undefined && chatItem.disabled === false, 'right-clicking a log line offers 添到聊天 for that line')
+  await act(async () => { propsOf(chatItem).onClick() })
+  const pasted = editable.textContent
+  check(pasted.startsWith('[Xcode build log] L2 of the build output I mean'), 'it names what it is and which line', pasted.slice(0, 80))
+  check(pasted.includes('- source: the dsh-xcodebuild panel\u2019s log'.replace('\u2019', "'")) && pasted.includes('run run-9'), 'it says which run the line is from', pasted)
+  check(pasted.includes('failed, exit 65'), 'and how that run ended', pasted)
+  check(pasted.includes('xcode_log runId=run-9 from=1'), 'and how to read the lines around it', pasted)
+  check(pasted.includes('    2 | /src/A.swift:12:5: error: boom'), 'with the line itself, numbered as the panel numbers it', pasted)
+  check(!pasted.includes('line 1'), 'and only that line')
+
+  editable.textContent = ''
+  const errorsButton = container.querySelector('.xcb-errors-chat')
+  check(errorsButton !== null, 'a run with errors offers 添到聊天 beside the count')
+  await act(async () => { propsOf(errorsButton).onClick() })
+  const errors = editable.textContent
+  check(errors.startsWith('[Xcode build errors] the 1 error of the build I mean'), 'the errors arrive as errors of that build', errors.slice(0, 80))
+  check(errors.includes('path:line:column') && errors.includes('/src/A.swift:12:5: error: boom'), 'pointing at the source location each names', errors)
+  editable.remove()
+  document.execCommand = execBefore
 }
 
 // =========================================================================
@@ -3436,6 +3498,9 @@ section('the LLDB drawer')
   check(message.includes('"● GC 键盘"') && message.includes('0,0 116.7x44'), 'with what it shows and where', message)
   check(message.includes('parent: UIStackView 0x2'), 'and its parent', message)
   check(message.includes('HIDProbe'), 'and which app it is in', message)
+  check(message.includes('- source: an LLDB read of the key window') && message.includes('read at '), 'it says where the description came from and when it was read', message)
+  check(message.includes('- refers to: ONE live UIView instance'), 'and that it means that one instance, not its class', message)
+  check(message.includes('- in source: a Swift type `StatusLight` in module `Example`'), 'and where to look for it in the source', message)
   check(container.querySelector('.xcb-lldb-rowmenu') === null, 'the menu closes once used')
   // Right-click picked that row, as a native list does; put the pick back where the next checks expect it.
   await act(async () => {
@@ -3946,7 +4011,7 @@ section('the LLDB drawer')
     check(Number.parseFloat(flipped.style.left) < window.innerWidth - 5 && Number.parseFloat(flipped.style.top) < window.innerHeight - 5,
       'and near the window\'s edge it opens toward the room there is', `${flipped.style.left} ${flipped.style.top}`)
     equal(Array.from(menu?.querySelectorAll('.xcb-ctxmenu-item') ?? []).map((item) => item.firstChild.textContent),
-      ['Select All', 'Copy', 'Clear'], 'with Select All and Copy, and Clear after them')
+      ['Select All', 'Copy', '添到聊天', 'Clear'], 'with Select All, Copy and 添到聊天, and Clear after them')
     const before = container.querySelectorAll('.xcb-lldb-line').length
     check(before > 0, 'there is something to clear', String(before))
     await act(async () => { propsOf(Array.from(flipped.querySelectorAll('.xcb-ctxmenu-item')).find((item) => item.textContent === 'Clear')).onClick() })

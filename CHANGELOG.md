@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.6.13
+
+### Added
+
+- **添到聊天 says where a reference comes from and what it points at.** Everything the panel puts
+  into the chat now opens with the same three lines, so the AI never has to guess what the user means:
+  `source` (which read or which run produced it, from which app or project, and when), `refers to`
+  (exactly what the reference denotes), and `reach it` / `read around it` (the tool call that gets at
+  the same thing, or the rest of it).
+- **A view** says it is one live `UIView` instance at that address — not its class, since a screen
+  has dozens of `UILabel`s — read by LLDB from which process, on which destination, at what time; and
+  where it is in the source: a Swift view's module and type (`Example.StatusLight` → `class
+  StatusLight` in `Example`), an app Objective-C class's `@interface`, and for a system view the
+  nearest app-defined ancestor, which is where the code that builds it lives. The picked view's chip
+  above the LLDB prompt has its own `添到聊天` button.
+- **Build log lines.** Right-click a line — or select several — and `添到聊天` hands over those exact
+  lines, numbered as the panel numbers them, with the run they belong to (action, run id, scheme,
+  configuration, destination, how it ended, project) and the `xcode_log runId=… from=…` call that
+  reads the lines around them. A filter that was on is mentioned, since lines between the picks may
+  be missing. Long picks keep their head and tail.
+- **Build errors.** A run with errors has `添到聊天` beside the count: every error xcodebuild reported,
+  each naming its `path:line:column`, with the run they came from.
+- **LLDB transcript lines.** The same right-click, with the session they came from — the one the
+  drawer shares with `xcode_lldb`, attached to which process and pid, in what state — and what `$v`
+  was in those commands.
+
 ## 0.6.12
 
 ### Fixed

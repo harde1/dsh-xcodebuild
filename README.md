@@ -88,7 +88,11 @@ bar says how many matched. The tree folds like Lookin's: a triangle on every row
 (`⌥`-click for a whole branch), the arrow keys to walk and fold it, the fold kept by address so a
 re-read leaves it as it was, and three modes — smart content-open default, everything open, or only
 the outer windows — with a view picked on the canvas opening its own way into view. And a box at the
-bottom takes any LLDB command. The drawer is the *same*
+bottom takes any LLDB command. `添到聊天` — on a view's right-click menu, on the picked view's chip,
+on any line of the build log or the LLDB transcript, and beside a build's error count — puts it into
+the chat as a reference that says where it came from (`source`), what exactly it points at
+(`refers to`), and which tool call reaches it or reads around it, so the model knows precisely what
+is meant. The drawer is the *same*
 session the model uses, so a session the model starts opens it — transcript and all — and the user
 can take the prompt over from there. `⤢` gives the drawer the whole panel (and `⤡` gives it back;
 the panel itself is resizable by its corner), and a double-click on a row focuses that view's
