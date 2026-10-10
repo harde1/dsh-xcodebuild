@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.6.15
+
+### Fixed
+
+- **Opening the LLDB drawer no longer shows the view-tree section.** 0.6.14 hid the tree *column*
+  inside the section, but the section itself still opened every time the drawer did: opening the
+  drawer quietly restores the last tree read from the host's cache, and a restored tree opened the
+  section as if it had just been asked for. The section now starts folded and only an asked-for read
+  — View Hierarchy, Take over — opens it; a cached tree waits behind the head's `Tree` toggle, already
+  loaded. The tree column inside the section is shown again when the section is, as before 0.6.14.
+
 ## 0.6.14
 
 ### Changed

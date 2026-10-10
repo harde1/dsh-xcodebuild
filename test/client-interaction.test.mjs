@@ -1048,6 +1048,53 @@ section('clear empties the output log, not the filter')
     'the filter query carries the clear baseline to the host')
 }
 
+section('opening the LLDB drawer does not show the view-tree section, even with a tree cached')
+{
+  const cached = {
+    ok: true,
+    cached: true,
+    similarity: 0.98,
+    target: { kind: 'simulator', destination: 'platform=iOS Simulator,id=s', process: 'HIDProbe', bundleId: 'com.example.HIDProbe', runId: 'xr1' },
+    views: 1,
+    depth: 0,
+    classes: [{ className: 'UIWindow', count: 1 }],
+    shown: 1,
+    truncated: false,
+    records: [{ depth: 0, className: 'UIWindow', address: '0x1', frame: { x: 0, y: 0, width: 390, height: 844 }, text: '', hidden: false, attributes: {} }],
+  }
+  const calls = serve({
+    state: () => ({ workspace: '/tmp', activeRunId: null, runs: [] }),
+    detect: (body) => ({ kind: 'workspace', root: '/tmp', location: body.path, name: 'P', schemes: [], configurations: [], sweetpadDefaults: {} }),
+    destinations: () => ({ destinations: [] }),
+    cachedTree: true,
+    lldb: (body) => {
+      if (body.op === 'view' && body.cacheOnly === true) return cached
+      return { active: false, session: null, next: 0, firstAvailable: 1, lines: [] }
+    },
+  })
+  const instance = mount({})
+  const overlay = instance.components.get('dsh-xcodebuild-panel')
+  const toggle = instance.components.get('dsh-xcodebuild-toggle')
+  const { container } = await render([
+    React.createElement(overlay.component, { key: 'overlay' }),
+    React.createElement(toggle.component, { key: 'toggle', sessionId: 'sess-treefolded' }),
+  ])
+  await act(async () => {
+    container.querySelector('.xcb-trigger').dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+  })
+  await act(async () => {
+    container.querySelector('.xcb-lldb-toggle').dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+    await new Promise((resolve) => setTimeout(resolve, 150))
+  })
+  check(calls.some((call) => call.method === 'lldb' && call.body.cacheOnly === true), 'opening the drawer quietly restores the cached tree')
+  check(container.querySelector('.xcb-lldb') !== null, 'the drawer is open')
+  check(container.querySelector('.xcb-lldb-treesec') === null, 'but the tree section stays folded')
+  const treeToggle = Array.from(container.querySelectorAll('.xcb-lldb-head .xcb-ibtn')).find((node) => nameOf(node) === 'Tree')
+  check(treeToggle !== undefined && !treeToggle.classList.contains('on'), 'and the head\u2019s Tree toggle shows it is off')
+  await act(async () => { propsOf(treeToggle).onClick() })
+  check(container.querySelectorAll('.xcb-lldb-row').length === 1, 'Tree opens it, with the cached tree already in it')
+}
+
 section('the run log has the same right-click menu as the debugger transcript')
 {
   serve({
@@ -2994,6 +3041,10 @@ section('the LLDB drawer')
   check(buttonNamed(container, 'View Hierarchy') !== undefined,
     'and View Hierarchy is offered too: pressing it is what attaches')
   check(buttonNamed(container, 'Lookin') === undefined, 'while Lookin is not, because there is nothing to open yet')
+  // The tree section does not open with the drawer: it waits behind the head's Tree toggle.
+  check(container.querySelector('.xcb-lldb-treesec') === null, 'opening the drawer does not show the tree section')
+  await act(async () => { propsOf(Array.from(container.querySelectorAll('.xcb-lldb-head .xcb-ibtn')).find((node) => nameOf(node) === 'Tree')).onClick() })
+  check(container.querySelector('.xcb-lldb-treesec') !== null, 'and Tree shows it')
   check(container.textContent.includes('Apps picks one that is running now'),
     'and the empty tree names the buttons that are on screen')
 
@@ -3044,14 +3095,8 @@ section('the LLDB drawer')
     await new Promise((resolve) => setTimeout(resolve, 60))
   })
   check(calls.some((call) => call.method === 'lldb' && call.body.op === 'view'), 'it asks the host for the view hierarchy')
-  // The tree column is not shown by default: the canvas comes up whole, and 图层树 opens the column.
-  {
-    const outlineTab = Array.from(container.querySelectorAll('.xcb-lldb-canvas-bar .xcb-lldb-tab')).find((node) => node.textContent === '图层树')
-    equal(container.querySelector('.xcb-lldb-treecol'), null, 'a read does not open the tree column by itself')
-    check(outlineTab !== undefined && !outlineTab.classList.contains('on'), 'and 图层树 in the toolbar shows it is off')
-    check(container.querySelector('.xcb-lldb-stage') !== null, 'while the canvas shows what was read')
-    await act(async () => { propsOf(outlineTab).onClick() })
-  }
+  // View Hierarchy is asking for the tree, so its section opens even though it starts folded.
+  check(container.querySelector('.xcb-lldb-treesec') !== null, 'an asked-for read opens the tree section')
   equal(container.querySelectorAll('.xcb-lldb-row').length, 4, 'and every view is drawn')
   check(container.textContent.includes('4 views · 2 levels'), 'with the count of what was found', container.querySelector('.xcb-lldb-stats')?.textContent)
   check(container.querySelector('.xcb-lldb-state').textContent.includes('stopped'),
@@ -4128,10 +4173,6 @@ section('the LLDB drawer')
   })
   check(held.some((call) => call.method === 'lldb' && call.body.op === 'view' && call.body.mode === 'launch'),
     'which asks for the tree by launching the app under the debugger')
-  // The tree column starts hidden; open it to count the rows.
-  await act(async () => {
-    propsOf(Array.from(fourthRender.container.querySelectorAll('.xcb-lldb-canvas-bar .xcb-lldb-tab')).find((node) => node.textContent === '图层树')).onClick()
-  })
   equal(fourthRender.container.querySelectorAll('.xcb-lldb-row').length, 4, 'and the tree arrives')
 
   // What the host really sends for 蜜语-Dev now that it listens to asynchronous errors: LLDB's own
