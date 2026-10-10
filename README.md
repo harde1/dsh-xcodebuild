@@ -84,7 +84,11 @@ it attaches LLDB to the app this project last ran, stops it, and draws the key w
 class, address, frame, text, hidden flag, and a stack view's `axis`/`distribution`/`alignment`, which
 is usually why a screen looks wrong. A filter narrows it by class, text or address without asking the
 host again — the rows that match are highlighted, the ancestors that place them are dimmed, and the
-bar says how many matched — and a box at the bottom takes any LLDB command. The drawer is the *same*
+bar says how many matched. The tree folds like Lookin's: a triangle on every row that has children
+(`⌥`-click for a whole branch), the arrow keys to walk and fold it, the fold kept by address so a
+re-read leaves it as it was, and three modes — smart content-open default, everything open, or only
+the outer windows — with a view picked on the canvas opening its own way into view. And a box at the
+bottom takes any LLDB command. The drawer is the *same*
 session the model uses, so a session the model starts opens it — transcript and all — and the user
 can take the prompt over from there. `⤢` gives the drawer the whole panel (and `⤡` gives it back;
 the panel itself is resizable by its corner), and a double-click on a row focuses that view's

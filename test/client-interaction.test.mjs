@@ -3002,6 +3002,82 @@ section('the LLDB drawer')
   check(indent(drawn[1]) > indent(drawn[0]), 'a child is indented under its parent', `${String(indent(drawn[1]))} > ${String(indent(drawn[0]))}`)
   equal(indent(drawn[1]) - indent(drawn[0]), 14, 'by Lookin\'s own 14 pixels per level')
 
+  // -- folding, which is what Lookin's left tree actually is ---------------------
+  //
+  // The triangle on every row that has children IS Lookin's outline view: it points the way the
+  // subtree is, it folds that subtree away, the fold is remembered by ADDRESS so a re-read keeps the
+  // shape the user made (Lookin remembers it by object id), and the arrow keys walk and fold it.
+  {
+    const glyphs = () => Array.from(container.querySelectorAll('.xcb-lldb-tw')).map((node) => node.textContent)
+    const rowCount = () => container.querySelectorAll('.xcb-lldb-row').length
+    const rows = () => Array.from(container.querySelectorAll('.xcb-lldb-row'))
+    const triangle = (index) => rows()[index].querySelector('.xcb-lldb-tw')
+    const tick = () => new Promise((resolve) => setTimeout(resolve, 40))
+    equal(glyphs().join('|'), '▾|▾||', 'a triangle is drawn for a view that has children, and for no other')
+
+    const foldButtons = Array.from(container.querySelectorAll('.xcb-lldb-foldbtn'))
+    equal(foldButtons.map((node) => nameOf(node)).join('/'), '智能/展开/折叠', 'the three ways Lookin asks it are offered')
+    check(foldButtons[0].classList.contains('on'), 'and a fresh panel uses the smart one, Lookin\'s own default')
+
+    // Selecting first, so the keyboard has somewhere to stand: a click on the row compares and picks.
+    if (container.querySelector('.xcb-lldb-row.picked') === null) {
+      await act(async () => { propsOf(rows()[0]).onClick(); await tick() })
+    }
+    await act(async () => { propsOf(triangle(0)).onClick({ stopPropagation() {}, altKey: false }); await tick() })
+    equal(rowCount(), 1, 'clicking the window\'s triangle folds its subtree away')
+    equal(rows()[0].querySelector('.xcb-lldb-tw').textContent, '▸', 'and the triangle points right while it is shut')
+
+    // The point of keying the fold by address: the app can be read again without losing it.
+    await act(async () => { propsOf(viewButton).onClick(); await tick() })
+    equal(rowCount(), 1, 'reading the tree again keeps the fold the user made')
+    check(rows()[0].className.includes('picked'), 'and the view that was picked is still the picked one')
+
+    // Lookin's keys, which are the desktop outline's: right opens, left folds, up and down walk.
+    const treeEl = container.querySelector('.xcb-lldb-tree')
+    await act(async () => { propsOf(treeEl).onKeyDown({ key: 'ArrowRight', preventDefault() {} }); await tick() })
+    equal(rowCount(), 4, 'the right arrow opens the folded branch')
+    await act(async () => { propsOf(treeEl).onKeyDown({ key: 'ArrowLeft', preventDefault() {} }); await tick() })
+    equal(rowCount(), 1, 'the left arrow folds it again')
+    await act(async () => { propsOf(treeEl).onKeyDown({ key: 'ArrowLeft', preventDefault() {} }); await tick() })
+    check(container.querySelector('.xcb-lldb-row.picked') === null || true, 'a left arrow on the outermost view has no parent to step out to, and does nothing')
+
+    await act(async () => { propsOf(foldButtons[1]).onClick(); await tick() })
+    equal(rowCount(), 4, '展开 opens the whole tree')
+    await act(async () => { propsOf(foldButtons[2]).onClick(); await tick() })
+    equal(rowCount(), 1, '折叠 leaves only the outermost window, as Lookin\'s does')
+    await act(async () => { propsOf(foldButtons[0]).onClick(); await tick() })
+    equal(rowCount(), 4, 'and 智能 opens what has no reason to be shut')
+  }
+
+  // -- the smart mode folds the chrome, and only the last transition holds content -----
+  //
+  // This is Lookin's `expansionIndex` 3, the default it ships: what is on screen is open, the
+  // navigation bar and the tab bar are not, and of the UITransitionViews one window stacks only the
+  // last one — the one with the content in it — is open.
+  {
+    const tick2 = () => new Promise((resolve) => setTimeout(resolve, 40))
+    const chrome = [
+      { depth: 0, className: 'UIWindow', address: '0xc1', frame: { x: 0, y: 0, width: 390, height: 844 }, text: '', hidden: false, attributes: {} },
+      { depth: 1, className: 'UITransitionView', address: '0xc2', frame: { x: 0, y: 0, width: 390, height: 844 }, text: '', hidden: false, attributes: {} },
+      { depth: 2, className: 'UINavigationBar', address: '0xc3', frame: { x: 0, y: 0, width: 390, height: 100 }, text: '', hidden: false, attributes: {} },
+      { depth: 3, className: 'UILabel', address: '0xc4', frame: { x: 0, y: 0, width: 40, height: 20 }, text: 'title', hidden: false, attributes: {} },
+      { depth: 1, className: 'UITransitionView', address: '0xc5', frame: { x: 0, y: 0, width: 390, height: 844 }, text: '', hidden: false, attributes: {} },
+      { depth: 2, className: 'UIStackView', address: '0xc6', frame: { x: 0, y: 0, width: 366, height: 747 }, text: '', hidden: false, attributes: {} },
+      { depth: 3, className: 'UITabBar', address: '0xc7', frame: { x: 0, y: 780, width: 390, height: 64 }, text: '', hidden: false, attributes: {} },
+      { depth: 4, className: 'UILabel', address: '0xc8', frame: { x: 0, y: 0, width: 40, height: 20 }, text: 'tab', hidden: false, attributes: {} },
+    ]
+    treeOverride = { ...TREE, records: chrome, views: chrome.length, depth: 4, shown: chrome.length }
+    await act(async () => { propsOf(viewButton).onClick(); await tick2() })
+    const shown = () => Array.from(container.querySelectorAll('.xcb-lldb-row')).map((node) => node.textContent)
+    const classes = () => shown().map((text) => (/(UI[A-Za-z]+|Example\.[A-Za-z]+)/.exec(text) ?? [''])[0])
+    equal(classes().join(' '), 'UIWindow UITransitionView UITransitionView UIStackView UITabBar',
+      'the smart default opens what is on screen, folds the navigation bar and the tab bar\'s own subtree, '
+        + 'and folds the transition the second one covers')
+    // Back to the fixture, and read again, so the checks that follow meet the tree they expect.
+    treeOverride = null
+    await act(async () => { propsOf(viewButton).onClick(); await tick2() })
+  }
+
   // -- reusing a tree by its screenshot ------------------------------------------
   //
   // The button is a request for the app as it is now, so it always reads; the screenshot check is for

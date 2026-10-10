@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.6.11
+
+### Added
+
+- **The view tree folds, the way Lookin's does.** Every row with children carries its disclosure
+  triangle — `▾` open, `▸` shut — and the triangle is the only thing on the row that folds: clicking
+  the row still picks the view, as in a native outline. `⌥`-click folds a whole branch at once
+  (Lookin's `collapseAllChildrenOfItem:`), the arrow keys do what a desktop tree's do (right opens a
+  folded branch or steps into it, left folds it or steps out to the parent, up and down walk the
+  visible rows), and a view picked on the canvas opens its ancestors first, because a selection
+  nobody can see is not a selection — Lookin opens its outline to whatever its preview selected for
+  the same reason.
+- **And it remembers the shape.** A fold is kept by **address**, which is the only identity that
+  survives a re-read, so reading the tree again — after a rebuild, a rotation, a change of screen —
+  leaves the branches the user closed closed. Lookin keys its expansion state by the layer's object
+  id for exactly this reason.
+- **Three expansion modes, in Lookin's own terms.** `智能` (the default, Lookin's `expansionIndex`
+  3): what is on screen is open, the chrome is not — a `UINavigationBar` or `UITabBar` keeps its own
+  row but folds its subtree, and of the `UITransitionView`s a window stacks on each other only the
+  last one, the one holding the content, is open. `展开` is everything, `折叠` leaves only the
+  outermost windows. Folding is set aside while a search or a focus is on, so a match deep inside a
+  closed branch is still reachable; Lookin saves and restores its expansion around both for the same
+  reason.
+
 ## 0.6.10
 
 ### Fixed
