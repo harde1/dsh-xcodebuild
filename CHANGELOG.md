@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.6.18
+
+### Fixed
+
+- **3D layers stand Lookin's distance apart on a real screen, and the spacing slider works.** The
+  distance between levels was scaled by the width of everything the tree holds, and a list is laid
+  out unscrolled: on 蜜语-Dev the tree spans 174 642 points, so one level stood about 8 000 points
+  from the next — the stack reached far outside the stage, and dragging the slider moved layers that
+  were already out of sight. A level is now Lookin's own distance, `(0.1 + spacing × 0.7) × 100`
+  points — 25.4 at the default 0.22, 10 to 80 across the slider — whatever the tree holds, as in
+  Lookin, whose scene draws one point as 0.01 and spaces levels by that formula.
+
 ## 0.6.17
 
 ### Changed

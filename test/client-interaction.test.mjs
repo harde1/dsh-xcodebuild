@@ -3812,6 +3812,9 @@ section('the LLDB drawer')
       await act(async () => { propsOf(shutTw).onClick({ stopPropagation() {}, altKey: false }) })
       check(zOf('0x3') > zOf('0x2'), 'and opening it again stands it in front once more', [zOf('0x2'), zOf('0x3')])
     }
+    // Lookin's units: one level is (0.1 + spacing × 0.7) × 100 points, 25.4 at the default, whatever
+    // the tree holds. Scaled by content width it was thousands of points on a real list.
+    check(Math.abs((zOf('0x3') - zOf('0x2')) - 25.4) < 0.05, 'a level stands 25.4 points from the next, as in Lookin', zOf('0x3') - zOf('0x2'))
     const before = zOf('0x3') - zOf('0x1')
     await act(async () => { propsOf(container.querySelector('.xcb-lldb-canvas-space')).onChange({ target: { value: '1' } }) })
     check(zOf('0x3') - zOf('0x1') > before, 'which pulls the layers further apart')
