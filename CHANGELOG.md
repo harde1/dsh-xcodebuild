@@ -1,5 +1,58 @@
 # Changelog
 
+## 0.6.16
+
+### Added
+
+- **The canvas draws each control as it looks.** One more expression in the same stop as the tree
+  reads every view's resolved background, text colour, font size and weight, alignment, corner
+  radius, border, opacity and clipping (`lib/view-style.js`), so the boxes carry the control's look
+  even where no window image exists — an iOS 16 device, or 3D. Views that draw something of their
+  own (an image, a label's glyphs) then get their own picture, fetched in the background twelve at a
+  time, each batch one short stop (about 0.1–0.2 s measured), and never while another action runs.
+  Both expressions are header-free, because `@import UIKit` fails on the classic channel.
+- **Control pictures are cached for the life of the process.** Keyed by device and pid, so a
+  re-attach to the same process keeps them, and a new pid starts empty. A first look matches
+  loosely (the same view, by address, class and size) so the canvas fills at once; a press of View
+  Hierarchy over a tree already shown is a refresh and matches strictly — an image view by its UIImage
+  and tint, a label by its text and text style, anything that draws itself is fetched again.
+
+### Fixed
+
+- **A detached session no longer answers the next read with "the process is idle".** It is attached
+  again instead.
+
+- **The canvas no longer scales its picture off the stage.** The world's transform is written for
+  a top-left origin, but the element kept the default centre origin. The world is sized to every
+  frame the tree holds (780 × 18242 on 蜜语-Dev), so its scale pivoted about (390, 9121) and threw
+  the window thousands of points away. In Chrome it measured at y = 5070 on a 400-high stage. The
+  amount depended on the stage's size, which is why resizing the drawer or toggling a column made
+  the picture disappear. The origin is now `0 0`, and the window sits centred.
+- **The canvas fills the workspace, and the tree and inspector float over it, as in Lookin.**
+  Showing or hiding 图层树 or 检查器 no longer changes the stage's size. The picture is fitted and
+  centred in the part of the stage the columns leave open.
+- **The canvas scrolls like a scroll view.** A slide reaches all the content the tree holds,
+  including what a list keeps below its fold, and stops at its edge. The top of a tall 2D window
+  can be brought into view, and the picture can never be slid away into nothing. The pan is kept in
+  the window's own points, as Lookin keeps its stage position in scene units.
+- **A stage that changes size re-centres.** Resizing the drawer, or showing or hiding a column,
+  puts the view back on the middle of the content, at the zoom it had.
+- **The canvas keeps its room on a small screen.** With a tree read, the LLDB drawer keeps at least
+  340px (or the whole panel, if the panel is smaller), and the log strip gives way first.
+
+- **The canvas is fitted to the window, not to every frame the tree holds.** Scroll offsets are not
+  read, so a long list's content lands where it would be unscrolled. On 蜜语-Dev, a refresh footer
+  at y = 18240 and a paged cell at x = 780 made the extent 780 × 18242. Fitting to that drew the
+  390 × 844 window at 2.5 %, so the stage looked black. The stage now fits and centres on the
+  shown root's frame, and views outside it are still drawn, off the edge.
+- **View pictures are right side up.** A `CGBitmapContext`'s origin is bottom-left, and
+  `renderInContext:` draws the top-down layer tree into it unchanged. Both the window image under the
+  boxes and each view's own picture came back upside down. Both contexts are now flipped. This was
+  checked on the device by rendering the window both ways.
+- **The image read compiles in every app.** A local named `scale` collided with the symbols images
+  export (`Multiple external symbols found for 'scale'`). It is now `xcbImageScale`, and the
+  tests reject `scale`, `context` and `space` as local names.
+
 ## 0.6.15
 
 ### Fixed
@@ -45,6 +98,7 @@
 - **LLDB transcript lines.** The same right-click, with the session they came from — the one the
   drawer shares with `xcode_lldb`, attached to which process and pid, in what state — and what `$v`
   was in those commands.
+
 
 ## 0.6.12
 
@@ -138,8 +192,8 @@
   all.
 - **And if neither can run, the screen is captured and cropped to the window.** A capture needs no
   debugger, no expression and no headers — the platform's own screenshot tool and `sips` — so the
-  canvas gets a picture even on a target this panel cannot attach to, with the host saying so in
-  its note (the canvas shows that note since 0.6.9). The panel sends the window's frame with the request (it is in the tree it
+  canvas gets a picture even on a target this panel cannot attach to, with the note saying the
+  picture is a capture. The panel sends the window's frame with the request (it is in the tree it
   already read) and the host measures the crop against the capture's own pixel width, which is what
   keeps the boxes on top of the right pixels. Measured through the host itself: `from=crop`, a 74 KB
   PNG, and the same geometry `sips -c <h> <w> --cropOffset <top> <left>` was checked against a
@@ -176,7 +230,6 @@
   scale where they were and moves the camera instead; a pinch zooms without moving it; a line-mode
   notch pans by a line; dragging the percentage changes the zoom in the direction of the drag and
   double-clicking it returns to 100 %.
-
 
 ## 0.6.6
 
@@ -222,11 +275,28 @@
   tree does: over the threshold the cached tree is handed back without attaching at all, the drawer
   marks how fresh it is, and `fresh: true` — what the panel's own button sends — reads the app again
   regardless. `op=screen` reports the verdict on its own.
-- **An iOS 16 and earlier device is inspected over the classic channel.** CoreDevice knows iOS 17 and
-  later, so against an older phone every `devicectl` route answers that the device was not found —
-  about a phone that is plugged in and answering at that moment. The drawer now says that instead of
-  relaying it, and the attach follows the command script `ios-deploy` drives lldb with, which is the
-  one measured to debug that generation from a current Xcode (`lib/legacy-inspector.js`).
+- **An iOS 16 and earlier device is told the boundary instead of being told it is missing.**
+  CoreDevice knows iOS 17 and later, so against an older phone every `devicectl` route answers
+  `com.apple.dt.CoreDeviceError error 1000` — "The specified device was not found" — about a phone
+  that is plugged in, paired and answering on the classic channel at that very moment. `devicectl`
+  cannot resolve it by NAME either, so no spelling makes it work, and the error sends the reader
+  after the wrong problem. Every CoreDevice-only route now names the phone, its iOS version and the
+  real boundary instead: the app list, the process list, the container app log, the launch-for-the-
+  debugger step, the rendered view images, the window image, and the attach itself
+  (`lib/legacy-inspector.js`, `legacyInspectorRefusal`). The verdict is asked once per phone and
+  remembered, and a probe that does not answer is deliberately NOT remembered — a phone that is
+  briefly unreachable must not be pinned as legacy for the rest of the process.
+- **The classic attach is wired, through pymobiledevice3.** An iOS 16 and earlier device is
+  attached the way Xcode reaches it: `pymobiledevice3 developer debugserver start-server` forwards a
+  local port to the phone's debugserver (it starts `com.apple.debugserver.DVTSecureSocketProxy`, which
+  `libimobiledevice` 1.3.0 does not know), and lldb connects to that port with
+  `platform select remote-ios --sysroot "<DeviceSupport>/<ProductType> <ver> (<build>)/Symbols"`,
+  `process connect connect://127.0.0.1:<port>`, `process attach -p <pid>`. The pid comes from
+  `pymobiledevice3 developer dvt proclist`. A missing pymobiledevice3 is named with its install
+  command; the forwarder never exits by itself, so it is ready on `Started port forwarding`, kept for
+  the next attach to the same phone, and ended with the plugin. A phone that only answers over Wi-Fi
+  is found too (`ideviceinfo -n`). Without this phone's symbols in iOS DeviceSupport, lldb reads them
+  out of the phone, which can take many minutes; the failure note says so and how to fix it.
 
 ### Tests
 
@@ -239,6 +309,15 @@
   not ask twice, and a box with room carries its class name.
 - `test/host-mount.test.mjs` (111 checks): `op=window` with nothing attached refuses with a
   note and no image, and never describes a device with no name.
+- `test/legacy-inspector.test.mjs` (37 checks, new): the notice names the phone, the udid, the iOS
+  version and the boundary, says what does work, and never renders `undefined` for a missing field —
+  and, asserted on the error CODE as well as the wording, never contains `CoreDeviceError`, `error
+  1000`, `0x3E8` or anything that reads as "the phone is missing". The guard refuses only a named
+  device on hardware: a simulator, a target with no kind, a blank id and an unknown device all return
+  "go on" — the last of those without probing twice. The attach recipe is pinned too, because it is
+  the part that would otherwise be rediscovered: the sysroot carries `/Symbols` (the bare
+  DeviceSupport directory makes the platform adopt another device's SDK root), `connect` precedes
+  `attach`, and the proxy's port is positional rather than `-l`.
 
 ## 0.6.5
 

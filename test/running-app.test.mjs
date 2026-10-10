@@ -7,7 +7,7 @@
 // the ones that prompted this module.
 //
 // Run: node test/running-app.test.mjs
-import { findAppProcess, parseLaunchctlList, parseProcessList } from '../lib/running-app.js'
+import { findAppProcess, parseDvtProcessList, parseLaunchctlList, parseProcessList } from '../lib/running-app.js'
 
 let failures = 0
 let checks = 0
@@ -152,6 +152,25 @@ section('a simulator\'s loaded services')
 }
 
 console.log(`\n${checks - failures}/${checks} checks passed`)
+// --- pymobiledevice3's DVT list, for an iOS 16 and earlier device -----------
+//
+// Trimmed from `pymobiledevice3 developer dvt proclist --udid …` on an iPhone X, iOS 16.7.12.
+{
+  const dvt = JSON.stringify([
+    { isApplication: false, name: 'diagnosticd', pid: 351, realAppName: '/usr/libexec/diagnosticd', startDate: '2026-10-10 04:53:55+00:00' },
+    { isApplication: true, name: 'RunnerExt-NotificationService', pid: 342, realAppName: '/private/var/containers/Bundle/Application/B1DF/Runner.app/PlugIns/RunnerExt-NotificationService.appex/RunnerExt-NotificationService' },
+    { isApplication: true, name: 'AegirPoster', pid: 573, realAppName: '/System/Library/CoreServices/AegirProxyApp.app/PlugIns/AegirPoster.appex/AegirPoster' },
+    { bundleIdentifier: 'com.apple.mobilesafari', isApplication: true, name: 'MobileSafari', pid: 319, realAppName: '/Applications/MobileSafari.app/MobileSafari' },
+    { bundleIdentifier: 'com.suishoubo.ppmain3', isApplication: true, name: '蜜语-Dev', pid: 954, realAppName: '/var/containers/Bundle/Application/B950/蜜语-Dev.app/蜜语-Dev' },
+  ])
+  const apps = parseDvtProcessList(dvt)
+  check(apps.length === 2, 'only apps with a bundle id, and no extensions or daemons', JSON.stringify(apps.map((app) => app.name)))
+  const ours = apps.find((app) => app.bundleId === 'com.suishoubo.ppmain3')
+  check(ours?.pid === 954 && ours?.name === '蜜语-Dev', 'the app keeps its pid and its own (unencoded) name', JSON.stringify(ours))
+  check(parseDvtProcessList('not json').length === 0, 'output that is not the list is no apps')
+  check(parseDvtProcessList('{"a":1}').length === 0, 'and neither is JSON of another shape')
+}
+
 if (failures > 0) {
   console.error(`${failures} FAILED`)
   process.exit(1)

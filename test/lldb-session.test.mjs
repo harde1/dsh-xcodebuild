@@ -128,6 +128,22 @@ section('the attach recipe is the policy, so it is asserted directly')
     ['device select 00008110-1', 'device process attach -n HIDProbe'],
     'and by process name when no pid is known — the executable, not the bundle id',
   )
+  // An iOS 16 and earlier device: no `device select` (CoreDevice cannot see it), but the remote-ios
+  // platform with this phone's sysroot, the port pymobiledevice3 forwards, and the pid.
+  eq(
+    attachCommands({ kind: 'device', id: 'd6c2c9dd', pid: 1031, classic: { port: 55237, symbolsPath: '/DS/iPhone10,3 16.7.12 (20H364)/Symbols' } }),
+    [
+      'platform select remote-ios --sysroot "/DS/iPhone10,3 16.7.12 (20H364)/Symbols"',
+      'process connect connect://127.0.0.1:55237',
+      'process attach -p 1031',
+    ],
+    'an iOS 16 device is reached through a forwarded debugserver, then attached by pid',
+  )
+  eq(
+    attachCommands({ kind: 'device', id: 'd6c2c9dd', pid: 1031, classic: { port: 1, symbolsPath: '' } })[0],
+    'platform select remote-ios',
+    'and without this phone\'s symbols, the platform is still selected',
+  )
   eq(
     attachCommands({ kind: 'simulator', pid: 987 }),
     ['platform select ios-simulator', 'process attach --pid 987'],

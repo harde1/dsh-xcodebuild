@@ -69,6 +69,15 @@ globalThis.Element = dom.window.Element
 globalThis.Node = dom.window.Node
 globalThis.MouseEvent = dom.window.MouseEvent
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
+// jsdom lays nothing out, so it has no ResizeObserver. This one records what is observed and lets a
+// check say "the stage changed size" by calling every callback, which is all the canvas listens for.
+const resizeObservers = new Set()
+globalThis.ResizeObserver = class {
+  constructor(callback) { this.callback = callback }
+  observe() { resizeObservers.add(this) }
+  disconnect() { resizeObservers.delete(this) }
+}
+const fireResize = () => { for (const observer of resizeObservers) observer.callback([]) }
 
 // React keeps an IE-era fallback for watching a text field's value, and that path calls
 // `attachEvent`, which jsdom does not implement. Nothing reached it before because this
@@ -2834,8 +2843,19 @@ section('the LLDB drawer')
     detailsLayouts: 4,
     detailsCapped: true,
     detailsMs: 87,
+    // How each view looks, read in the same stop, and the views whose pixels the canvas fetches after.
+    styles: {
+      '0x1': { bg: 'rgba(255, 255, 255, 1)' },
+      '0x3': { bg: 'rgba(52, 199, 89, 1)', radius: 8, fg: 'rgba(255, 255, 255, 1)', fontSize: 13, bold: true, align: 'center', content: true },
+    },
+    imageQueue: ['0x3'],
   }
   let sessionActive = false
+  // The canvas's background image requests, and whether the next one is held open.
+  const imageReads = []
+  // How each tree read asked for its pictures to be matched: loose for a first look, strict for a refresh.
+  const viewMatches = []
+  let holdImages = null
   // What the next tree read answers with, when a test needs a tree that cannot be drawn.
   let treeOverride = null
   let fullJob = null
@@ -2879,6 +2899,7 @@ section('the LLDB drawer')
       if (body.op === 'processes') return { ok: true, processes: APPS, note: '' }
       if (body.op === 'attach') { sessionActive = true; sessionState = 'running'; return { ok: true, note: '', continued: true, session: sessionAt('running') } }
       if (body.op === 'detach') { sessionState = 'idle'; return { ok: true, note: '', session: sessionAt('idle') } }
+      if (body.op === 'view' && body.cacheOnly !== true) viewMatches.push(body.imageMatch)
       if (body.op === 'view') { sessionActive = true; sessionState = 'stopped'; return { ...(treeOverride ?? TREE), lookinAvailable } }
       if (body.op === 'screen') return screenAnswer
       if (body.op === 'lookin') return { ok: true, path: TREE.lookinPath, note: 'opened in Lookin', session: sessionAt(sessionState) }
@@ -2900,6 +2921,11 @@ section('the LLDB drawer')
           rows: [{ label: 'Class', value: 'Example.StatusLight' }, { label: 'Frame', value: '0, 0  116.667×44' }],
           note: '',
         }
+      }
+      if (body.op === 'images') {
+        imageReads.push(body.addresses)
+        const answer = { ok: true, note: '', images: { '0x3': 'data:image/png;base64,QUJD' } }
+        return holdImages === null ? answer : holdImages.then(() => answer)
       }
       if (body.op === 'window') {
         windowReads += 1
@@ -3617,6 +3643,8 @@ section('the LLDB drawer')
     const planes = () => Array.from(container.querySelectorAll('.xcb-lldb-plane'))
     const plane = (address) => planes().find((node) => node.getAttribute('data-address') === address)
     check(container.querySelector('.xcb-lldb-stage') !== null, 'a tree read shows the canvas beside it')
+    check(container.querySelector('.xcb-lldb')?.className.includes('withtree') === true,
+      'and the drawer holding it is marked, so it keeps the canvas a floor of room', container.querySelector('.xcb-lldb')?.className)
     equal(planes().map((node) => node.getAttribute('data-address')).join(','), '0x1,0x2,0x3',
       'with one box per visible view, the hidden one left out')
     check(plane('0x3').style.transform.startsWith('translate3d(0px, 55px,'),
@@ -3676,6 +3704,31 @@ section('the LLDB drawer')
     check(container.textContent.includes(' · 截图（裁剪）'), 'and the status line marks it as a crop')
     windowNote = ''
 
+    // Without the window's picture, each box is drawn as its control: its colour, its corners, its
+    // text in its own style — and then its own pixels, fetched in the background after the tree.
+    await act(async () => { propsOf(shotBox).onChange() })
+    const green = plane('0x3')
+    check(green?.style.backgroundColor === 'rgb(52, 199, 89)' || green?.style.backgroundColor === 'rgba(52, 199, 89, 1)',
+      'a box takes its view\'s resolved background colour', green?.style.backgroundColor)
+    equal(green?.style.borderRadius, '8px', 'and its corner radius')
+    check(imageReads.length >= 1 && imageReads[0].includes('0x3'), 'the view\'s own pixels were asked for after the read', JSON.stringify(imageReads))
+    check(/QUJD/.test(green?.style.backgroundImage ?? ''), 'and once they arrive they are drawn on its box', green?.style.backgroundImage)
+    check(green?.querySelector('.xcb-lldb-plane-text') === null, 'replacing the stand-in text')
+    // A read whose pictures the host already holds hands them over with the tree: they are drawn at
+    // once and never asked of the app again.
+    const readsBefore = imageReads.length
+    treeOverride = { ...TREE, images: { '0x3': 'data:image/png;base64,Q0FDSEVE' }, imageQueue: [] }
+    await act(async () => {
+      propsOf(buttonNamed(container, 'View Hierarchy')).onClick()
+      await new Promise((resolve) => setTimeout(resolve, 60))
+    })
+    treeOverride = null
+    check(/Q0FDSEVE/.test(plane('0x3')?.style.backgroundImage ?? ''), 'a cached picture is drawn with the tree itself', plane('0x3')?.style.backgroundImage)
+    equal(imageReads.length, readsBefore, 'and nothing is fetched for it')
+    equal(viewMatches[0], 'loose', 'the first read takes whatever pictures the cache has, so the canvas fills at once')
+    equal(viewMatches[viewMatches.length - 1], 'strict', 'a read over a tree already shown is a refresh, and matches strictly')
+    await act(async () => { propsOf(shotBox).onChange() })
+
     // A box with room for a name says what it is.
     check(plane('0x3')?.querySelector('.xcb-lldb-plane-tag')?.textContent === 'Example.StatusLight',
       'a box big enough on screen is labelled with its class')
@@ -3700,6 +3753,28 @@ section('the LLDB drawer')
     })
     check(container.querySelector('.xcb-lldb-stage-note') === null && planes().length === 3,
       'and reads the real tree back when it is there again', planes().length)
+
+    // The window is what the stage is fitted to, not every frame the tree holds. Scroll offsets are
+    // not read, so a long list's footer lands at its unscrolled place: on 蜜语-Dev one at y = 18240
+    // made the extent 780 × 18242 and drew the 390 × 844 window at 2.5 % — a black stage.
+    const worldTransform = () => container.querySelector('.xcb-lldb-world')?.getAttribute('style') ?? ''
+    const fitted = worldTransform()
+    treeOverride = {
+      ...TREE,
+      records: [...RECORDS, { depth: 1, className: 'HRZRefreshTitleFooter', address: '0x9', frame: { x: 0, y: 18239.6, width: 390, height: 44 }, text: '', hidden: false, attributes: {} }],
+    }
+    await act(async () => {
+      propsOf(readButton).onClick()
+      await new Promise((resolve) => setTimeout(resolve, 60))
+    })
+    equal(worldTransform().replace(/width:[^;]*;|height:[^;]*;/g, ''), fitted.replace(/width:[^;]*;|height:[^;]*;/g, ''),
+      'a view scrolled far off the window does not shrink the window on the stage')
+    check(/translate\(-195px, -422px\)/.test(worldTransform()), 'and the stage is centred on the window', worldTransform())
+    treeOverride = null
+    await act(async () => {
+      propsOf(readButton).onClick()
+      await new Promise((resolve) => setTimeout(resolve, 60))
+    })
 
     const hiddenBox = Array.from(container.querySelectorAll('.xcb-lldb-canvas-check input'))[0]
     await act(async () => { propsOf(hiddenBox).onChange() })
@@ -3780,7 +3855,26 @@ section('the LLDB drawer')
 
     await act(async () => { wheelOver({ deltaX: 0, deltaY: -120, deltaMode: 0, ctrlKey: true, metaKey: false }) })
     check(zoomText() !== zoomBefore, 'a pinch — a wheel with ctrlKey — is what zooms', [zoomBefore, zoomText()])
-    check(Math.abs(panOf().y - (panBefore.y + 120)) < 1e-6, 'and it leaves the camera where it was', panOf())
+    // The pan is held in the window's points, so a zoom keeps the same spot of the window in the
+    // middle: on screen the offset grows with the scale, in points it does not move.
+    check(Math.abs(panOf().y / scaleOf() - (panBefore.y + 120) / scaleBefore) < 1e-6, 'and it leaves the camera where it was', [panOf(), scaleOf()])
+    // The stage is a scroll view over everything the tree holds, not only the window, and it stops at
+    // that content's edge. In jsdom the floating columns measure 0 wide, so the open middle is the
+    // stage's middle and the translate is the pan itself, in points times the scale.
+    // RECORDS: window 390 × 844 at 0,0; the farthest frame ends at y = 55 + 747 = 802, inside it, so
+    // the content's bottom is the window's: a long slide up stops with y = 844 at the middle.
+    await act(async () => { for (let i = 0; i < 40; i += 1) wheelOver({ deltaX: 0, deltaY: 400, deltaMode: 0, ctrlKey: false, metaKey: false }) })
+    check(Math.abs(panOf().y / scaleOf() - (422 - 844)) < 1e-6, 'a long slide stops with the content\'s edge at the middle of the stage', [panOf(), scaleOf()])
+    await act(async () => { for (let i = 0; i < 40; i += 1) wheelOver({ deltaX: 0, deltaY: -400, deltaMode: 0, ctrlKey: false, metaKey: false }) })
+    check(Math.abs(panOf().y / scaleOf() - 422) < 1e-6, 'and back the other way, the top reaches the middle, so the top of the window can be scrolled into view', [panOf(), scaleOf()])
+    // When the stage changes size (the drawer resized, a column shown or hidden) the view goes back to
+    // the middle of the content, wherever it had been slid to.
+    const stageWidth = Object.getOwnPropertyDescriptor(dom.window.HTMLElement.prototype, 'clientWidth')
+    Object.defineProperty(stage, 'clientWidth', { configurable: true, get: () => 777 })
+    await act(async () => { fireResize() })
+    check(Math.abs(panOf().x) < 1e-9 && Math.abs(panOf().y) < 1e-9, 'a stage that changes size puts the view back on the middle of the content', panOf())
+    delete stage.clientWidth
+    void stageWidth
 
     // A mouse reports its wheel in lines, not pixels: three pixels of pan per notch is a wheel that
     // looks broken, so the distance is scaled to something a hand can see.
@@ -4049,9 +4143,19 @@ section('the LLDB drawer')
     equal([menu?.style.left, menu?.style.top], ['40px', '30px'], 'it opens at the pointer, in viewport coordinates')
     const sheet = Array.from(document.querySelectorAll('style')).map((node) => node.textContent).join('')
     check(/\.xcb-ctxmenu\{position:fixed;z-index:2147483000/.test(sheet), 'as a fixed layer above everything, so a short log cannot clip it')
-    // With the view tree shown the log keeps three lines and the tree section takes the rest.
-    check(/\.xcb-lldb-treesec\{flex:1 1 auto/.test(sheet) && /\.xcb-lldb-treesec\+\.xcb-lldb-logsec\{flex:0 0 58px/.test(sheet),
+    // With the view tree shown the log keeps three lines and the tree section takes the rest; on a
+    // short panel the log gives way first, so the canvas is not the one squeezed to nothing.
+    check(/\.xcb-lldb-treesec\{flex:1 1 auto/.test(sheet) && /\.xcb-lldb-treesec\+\.xcb-lldb-logsec\{flex:0 1 58px/.test(sheet),
       'the tree section takes all but three lines of log')
+    check(/\.xcb-lldb\.withtree\{min-height:min\(340px,100%\)\}/.test(sheet), 'a drawer holding a canvas keeps a floor on its height')
+    // Lookin's arrangement: the stage fills the workspace and the tree and inspector float over it,
+    // so showing or hiding them never changes the stage's size.
+    check(/\.xcb-lldb-workspace\.withcanvas>\.xcb-lldb-canvascol\{position:absolute;inset:0/.test(sheet)
+      && /\.xcb-lldb-workspace\.withcanvas>\.xcb-lldb-treecol,\.xcb-lldb-workspace\.withcanvas>\.xcb-lldb-insp\{position:absolute;top:0;bottom:0;z-index:3/.test(sheet),
+      'the canvas fills the workspace and the side columns float over it')
+    // The transform is written for a top-left origin; with the default (the element's centre) a world
+    // sized to a 780 × 18242 extent pivoted its scale about (390, 9121) and the window left the stage.
+    check(/\.xcb-lldb-world\{[^}]*transform-origin:0 0/.test(sheet), 'the world scales about the point its transform is written for')
     // The head's icon buttons name themselves on a short delayed hover, in a tip of the panel's own.
     const headButtons = Array.from(container.querySelectorAll('.xcb-lldb-head .xcb-ibtn'))
     check(headButtons.length > 0 && headButtons.every((node) => (node.getAttribute('data-tip') ?? '') !== '' && node.getAttribute('aria-label') !== null),

@@ -223,6 +223,11 @@ section('the layout expression reports everything the panel draws, in one stop')
   check(!/\n/.test(expression), 'on a single line, because lldb reads a line at a time')
   check(expression.includes('[v hasAmbiguousLayout]'), 'it asks whether the layout is ambiguous')
   check(expression.includes('intrinsicContentSize'), 'and for the intrinsic size')
+  // A struct built from a message's result is what a headerless target refuses ("no matching
+  // constructor for initialization of 'CGSize'", 蜜语-Dev), and that one line lost the whole pane.
+  check(!/\bCG(Size|Rect|Point)\s+\w+\s*=|\(CG(Size|Rect|Point)\)\[/.test(expression),
+    'no geometry struct is declared or cast from a message: the size comes through KVC into doubles')
+  check(expression.includes('[(id)[v valueForKey:@"intrinsicContentSize"] getValue:(void *)ic]'), 'the intrinsic size is read through KVC')
   check(expression.includes('contentHuggingPriorityForAxis'), 'and the hugging priority')
   check(expression.includes('contentCompressionResistancePriorityForAxis'), 'and the compression resistance')
   check(expression.includes('while (node != nil)'), 'it walks every ancestor for the constraints that place the view')

@@ -114,11 +114,17 @@ for (const entry of DEPENDENCIES.filter((item) => item.required)) {
 
 const optional = DEPENDENCIES.filter((entry) => !entry.required)
 const legacy = optional.filter((entry) => entry.group === LEGACY_GROUP)
-for (const entry of legacy) {
+// pymobiledevice3 is a Python package, not a Homebrew formula: it is installed on its own, and the
+// combined brew command must not name it (brew answers "No available formula").
+const brewed = legacy.filter((entry) => entry.install.startsWith('brew '))
+for (const entry of brewed) {
   check(LEGACY_TOOLCHAIN_INSTALL.includes(entry.install.split(' ').pop()),
     `${entry.command}'s formula appears in the combined install command`, LEGACY_TOOLCHAIN_INSTALL)
 }
-check(legacy.length === 6, 'the classic channel is the whole optional set', `${legacy.length} entries`)
+check(brewed.length === 6, 'the classic channel\'s brew tools are the six it always was', `${brewed.length} entries`)
+equal(legacy.find((entry) => entry.command === 'pymobiledevice3')?.install, 'pipx install pymobiledevice3',
+  'pymobiledevice3 lists the running apps on that hardware, and is installed with pipx')
+check(!LEGACY_TOOLCHAIN_INSTALL.includes('pymobiledevice3'), 'and is not put in the brew command, which cannot install it')
 
 const readability = optional.filter((entry) => entry.group === READABILITY_GROUP)
 equal(readability.map((entry) => entry.command), ['xcbeautify'],

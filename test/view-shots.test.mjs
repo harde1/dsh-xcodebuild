@@ -128,6 +128,16 @@ eq(shotFileName('group', 41), 'group-41.png', 'and a two-digit one')
 eq(shotFileName('solo', -1), null, 'a negative index has no file')
 eq(shotFileName('solo', 1.5), null, 'nor has a fractional one')
 
+// A CGBitmapContext's origin is bottom-left and `renderInContext:` draws UIKit's top-down layer tree
+// into it as is: unflipped, the window came off 蜜语-Dev upside down, tab bar on top. Both spellings,
+// both images, are flipped.
+for (const [name, source] of [['typed', viewShotsExpression({ start: 0, limit: 1, scale: 1 })], ['headerless', bare]]) {
+  for (const kind of ['solo', 'group']) {
+    check(source.includes(`CGContextTranslateCTM(${kind}Context, 0, (double)pixelHeight)`) && source.includes(`CGContextScaleCTM(${kind}Context, xcbViewScale, 0 - xcbViewScale)`),
+      `the ${kind} image of the ${name} spelling is drawn top-down`)
+  }
+}
+
 console.log(`\n${passed}/${passed + failed} checks passed`)
 if (failed > 0) process.exit(1)
 console.log('view shots OK')
