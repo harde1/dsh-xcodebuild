@@ -4462,6 +4462,63 @@ section('a Build & Run mounts the app it launched')
   check(buttonNamed(container, 'View Hierarchy') !== undefined, 'with View Hierarchy still offered to read it again')
 }
 
+section('Apps waits for a device list that is still being read')
+{
+  const workspace = '/Users/mac/Project/AppsWait'
+  const phone = { destination: 'platform=iOS,id=PHONE', kind: 'device', name: 'iPhone X', os: '16.7.12', placeholder: false }
+  dom.window.localStorage.clear()
+  // A project this workspace used before, with no device list stored for it: the first look has
+  // nothing to paint, so the destination stays empty until the command answers.
+  dom.window.localStorage.setItem('dsh-xcodebuild:selections', JSON.stringify({
+    [workspace]: {
+      scheme: 'W',
+      info: { kind: 'workspace', root: workspace, location: `${workspace}/W.xcworkspace`, name: 'W', schemes: ['W'], configurations: ['Debug'], sweetpadDefaults: {} },
+    },
+  }))
+  let answer = null
+  const calls = serve({
+    state: () => ({ workspace, activeRunId: null, runs: [] }),
+    doctor: () => ({ tools: [], missingRequired: [] }),
+    detect: (body) => ({ kind: 'workspace', root: workspace, location: body.path, name: 'W', schemes: ['W'], configurations: ['Debug'], sweetpadDefaults: {} }),
+    // The device list answers only when the test says so: the popup is opened before it does.
+    destinations: () => new Promise((resolve) => { answer = resolve }),
+    lldb: (body) => (body.op === 'processes'
+      ? { ok: true, processes: APPS, note: '' }
+      : { active: false, session: null, next: 0, firstAvailable: 1, lines: [] }),
+  })
+  const instance = mount({})
+  const { container } = await render([
+    React.createElement(instance.components.get('dsh-xcodebuild-panel').component, { key: 'overlay' }),
+    React.createElement(instance.components.get('dsh-xcodebuild-toggle').component, { key: 'toggle', sessionId: 'apps-wait' }),
+  ])
+  await act(async () => {
+    container.querySelector('.xcb-trigger').dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+  })
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 120)) })
+  await act(async () => {
+    document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'l', metaKey: true, bubbles: true }))
+  })
+  check(answer !== null, 'the device list is being read', 'no destinations call is pending')
+  const processes = () => calls.filter((call) => call.method === 'lldb' && call.body.op === 'processes')
+  await act(async () => {
+    propsOf(buttonNamed(container, 'Apps')).onClick()
+    await new Promise((resolve) => setTimeout(resolve, 60))
+  })
+  const note = () => container.querySelector('.xcb-lldb-apps-popup')?.textContent ?? ''
+  check(note().includes('请稍候'), 'the popup asks the user to wait instead of reporting no device', note())
+  check(!note().includes('no destination is selected'), 'and does not show the host refusal', note())
+  equal(processes().length, 0, 'nothing is asked of a device that is not chosen yet')
+
+  section('when the list arrives, the open popup reads the apps by itself')
+  await act(async () => {
+    answer?.({ destinations: [phone], recommended: phone.destination })
+    await new Promise((resolve) => setTimeout(resolve, 120))
+  })
+  equal(processes().length, 1, 'the apps are read once the list is in')
+  equal(processes()[0]?.body.destination, phone.destination, 'for the destination that was just chosen')
+  check(container.querySelector('.xcb-lldb-apps-row') !== null, 'and the running apps are listed', note())
+}
+
 console.log(`${checks - failures}/${checks} checks passed`)
 if (failures > 0) {
   console.error(`${failures} FAILED`)

@@ -1,5 +1,25 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **The iOS 16 install uses whichever `ideviceinstaller` spelling the tool speaks.** `ideviceinstaller`
+  1.2.0 — Homebrew's current formula — moved installing from the flag `-i <app>` to the command
+  `install <app>`, and it rejects the old flag instead of aliasing it, so a legacy run on a phone
+  whose build had just succeeded failed with the tool's own usage text:
+  `ideviceinstaller: invalid option -- i`. The shape is now read from the tool's own `--help`
+  (`lib/legacy-install.js`) — 1.1.x's `-i, --install ARCHIVE` against 1.2.0's `install PATH` — and if
+  a tool ever refuses the line it was handed, the other shape is tried once, because a refused command
+  line means nothing was uploaded. Verified against an iPhone 10,3 on iOS 16.7.12 with
+  `ideviceinstaller 1.2.0_1`: the old argv exits 2 with the usage, the new one installs to
+  `Install: Complete`.
+- **Apps waits for the device list instead of refusing.** Pressing Apps while the panel was still
+  reading its destinations sent an empty destination, and the popup showed the host's
+  `no destination is selected in the panel, so there is no device to list`. The popup now says the
+  device list is being refreshed and asks the user to wait, and when the refresh succeeds an Apps
+  popup that is still open reads the running apps again, for the destination selected now.
+
 ## 0.6.18
 
 ### Fixed

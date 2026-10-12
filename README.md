@@ -500,7 +500,11 @@ it.
   tiebreak, so two records that agree on everything never swap under the pointer. Being total is what
   makes a newly connected device take its place in the list rather than appearing at the end.
 - **The legacy install and launch are two different tools on purpose.**
-  `ideviceinstaller -u <udid> -i <app>` installs. Launching uses
+  `ideviceinstaller -u <udid> install <app>` installs. That spelling is read off the tool's own
+  `--help` rather than assumed: 1.2.0 — what Homebrew carries — moved installing from the flag
+  `-i <app>` to the command `install <app>` and rejects the old flag outright, with its own usage
+  text as the answer, so a build that was fine reported a failed install (`lib/legacy-install.js`).
+  Launching uses
   `ios-deploy --noinstall --noninteractive`, because ios-deploy's own install path fails against this
   generation of AMDevice with `0xe8000067` while its lldb-driven launch works — `--noinstall` is the
   entire point of the pairing. Neither tool reports its outcome in words, so neither is read for one;
