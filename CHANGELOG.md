@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.6.21
+
+### Fixed
+
+- **A debugger, a build or a read the model started in ANOTHER workspace no longer takes this
+  panel's screen.** The plugin holds one LLDB for every panel in the process, so `op: state` answered
+  every panel that a session existed — and the drawer opened itself in all of them, including the
+  projects the model was not working in. The host now records which workspace the session was opened
+  for (`lldbEnsureAttached`, the one place a session is attached), answers `mine` with it, and the
+  drawer only opens itself for its owner. The build reveal is held to the same rule from the client
+  side: the step is compared against the workspace it arrived WITH, and a step that names no
+  workspace — which is no evidence of belonging here — leaves the panel where the user put it. The
+  debugger's handle still says an app is held, so nothing is hidden; only the unasked-for takeover is.
+
 ## 0.6.20
 
 ### Added

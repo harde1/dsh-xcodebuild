@@ -294,6 +294,30 @@ const lldbRoute = registeredRoutes.find((route) => route.path.endsWith('/lldb'))
   await lldbRoute.handler(fakeRequest({ body: JSON.stringify({ sessionId: 'lookin-none', op: 'screen', destination: 'platform=iOS Simulator,id=NONE' }) }), screen)
   const looked = JSON.parse(screen.body)
   equal(looked.verdict, 'none', 'op=screen before any read has nothing to compare against')
+  // Whose debugger is it? The plugin holds ONE lldb for every panel in the process, so the session
+  // has to say which workspace opened it — that is what stops a view read or a build the model ran
+  // in another project from opening this panel's drawer by itself. A session nobody attached for
+  // belongs to no workspace, and every panel is told so.
+  const stateOf = async (sessionId) => {
+    const answer = fakeResponse()
+    await lldbRoute.handler(fakeRequest({ body: JSON.stringify({ sessionId, op: 'state', from: 0 }) }), answer)
+    return JSON.parse(answer.body)
+  }
+  const idle = await stateOf('lookin-none')
+  equal(idle.active, false, 'no debugger is attached yet')
+  equal(idle.mine, false, 'so no panel is told the session is its own')
+
+  const warm = fakeResponse()
+  await lldbRoute.handler(fakeRequest({ body: JSON.stringify({ sessionId: 'lookin-none', op: 'interrupt' }) }), warm)
+  const held = await stateOf('lookin-none')
+  equal(held.active, true, 'an interpreter a panel asked for exists')
+  equal(held.mine, false, 'but one that was never attached for a workspace is no panel\'s')
+  equal(held.workspace, '', 'and the host names no owner for it')
+
+  const done = fakeResponse()
+  await lldbRoute.handler(fakeRequest({ body: JSON.stringify({ sessionId: 'lookin-none', op: 'dispose' }) }), done)
+  equal((await stateOf('lookin-none')).active, false, 'disposing ends it')
+
   const quiet = fakeResponse()
   await lldbRoute.handler(fakeRequest({ body: JSON.stringify({ sessionId: 'lookin-none', op: 'view', cacheOnly: true, destination: 'platform=iOS Simulator,id=NONE' }) }), quiet)
   const restored = JSON.parse(quiet.body)

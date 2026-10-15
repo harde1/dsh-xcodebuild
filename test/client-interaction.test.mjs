@@ -4366,15 +4366,18 @@ section('the LLDB drawer')
 
   // A session the model starts opens the drawer by itself — and only on the transition, so
   // a drawer the user closed while a session is running stays closed.
+  // Who the session belongs to is the host's answer, and what scopes the self-opening: the same
+  // debugger is visible to every panel, so only the workspace it was opened for may be shown it.
   let agentSession = false
+  let agentMine = true
   serve({
     state: () => ({ workspace: '/tmp', activeRunId: null, runs: [] }),
     doctor: () => ({ tools: [], missingRequired: [] }),
     detect: (body) => ({ kind: 'workspace', root: '/tmp', location: body.path, name: 'P', schemes: [], configurations: [], sweetpadDefaults: {} }),
     destinations: () => ({ destinations: [] }),
     lldb: () => (agentSession
-      ? { active: true, session: TREE.session, next: 2, firstAvailable: 1, lines: [{ n: 1, t: 'Process 13290 stopped' }, { n: 2, t: 'Target 0: (HIDProbe) stopped.' }] }
-      : { active: false, session: null, next: 0, firstAvailable: 1, lines: [] }),
+      ? { active: true, mine: agentMine, workspace: '/tmp', session: TREE.session, next: 2, firstAvailable: 1, lines: [{ n: 1, t: 'Process 13290 stopped' }, { n: 2, t: 'Target 0: (HIDProbe) stopped.' }] }
+      : { active: false, mine: false, workspace: '/tmp', session: null, next: 0, firstAvailable: 1, lines: [] }),
   })
   const third = mount({})
   const thirdOverlay = third.components.get('dsh-xcodebuild-panel')
@@ -4407,6 +4410,21 @@ section('the LLDB drawer')
   await act(async () => { await new Promise((resolve) => setTimeout(resolve, 4600)) })
   check(thirdRender.container.querySelector('.xcb-lldb') === null,
     'and it stays closed while that same session runs — only a NEW session opens it')
+
+  // The debugger is one for the whole plugin, so every panel's poll sees it. A session opened for
+  // ANOTHER project is not this panel's, and must not take its screen: the host says so with `mine`.
+  await act(async () => {
+    agentSession = false
+    await new Promise((resolve) => setTimeout(resolve, 4600))
+  })
+  agentMine = false
+  agentSession = true
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 4600)) })
+  check(thirdRender.container.querySelector('.xcb-lldb') === null,
+    "a debugger opened for another workspace does not open this panel's drawer")
+  check(thirdRender.container.querySelector('.xcb-lldb-toggle').className.includes('live'),
+    'though the handle still says a debugger is holding an app — the fact is not hidden, only the theft',
+    thirdRender.container.querySelector('.xcb-lldb-toggle').className)
 
 }
 
@@ -4573,6 +4591,15 @@ section('an agent build brings this plugin forward')
   await act(async () => { await new Promise((resolve) => setTimeout(resolve, 700)) })
   equal(opened.length, seen + 1, 'a hierarchy dump leaves the sidebar where it was')
   check(calls.some((call) => call.method === 'state'), 'the state read is what carried the step')
+
+  section('another project\'s build does not take this panel\'s screen either')
+  step = { tool: 'xcode_run', kind: 'run', action: 'build', detail: 'Other · Debug', workspace: '/Users/mac/Project/SomebodyElse', at: 4000 }
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 700)) })
+  equal(opened.length, seen + 1, 'a build in another workspace leaves the sidebar where it was')
+  // A step nobody could place is not evidence of belonging here: the panel stays put.
+  step = { tool: 'xcode_run', kind: 'run', action: 'build', detail: 'unplaced', workspace: '', at: 5000 }
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 700)) })
+  equal(opened.length, seen + 1, 'and neither does a step that names no workspace at all')
 }
 
 section('with a docking sidebar in charge, the floating panel carries the step')
