@@ -217,7 +217,7 @@ check(/Lookin/.test(lldbTool.description), 'and its description says a .lookin f
 
 // --- routes ---------------------------------------------------------------
 
-const EXPECTED_ROUTES = ['state', 'detect', 'projects', 'destinations', 'doctor', 'start', 'poll', 'search', 'lldb', 'stop']
+const EXPECTED_ROUTES = ['state', 'detect', 'projects', 'destinations', 'doctor', 'installPlan', 'install', 'start', 'poll', 'search', 'lldb', 'stop']
 equal(
   registeredRoutes.map((route) => route.path.replace('/_dsh/dsh-xcodebuild/', '')),
   EXPECTED_ROUTES,
@@ -488,6 +488,43 @@ if (!existsSync('/usr/bin/xcrun')) {
   const inventory = JSON.parse(afterRes.body)
   equal(inventory.activeRunId, started.runId,
     'the run is active — and already tagged — the moment start answers, so the panel can poll it')
+}
+
+// --- what the model asked this plugin to do -------------------------------
+
+// The panel's AI strip is fed from the host, not guessed from a run: a step exists from the
+// moment the model calls a tool, which is what lets the panel open on a build before its first
+// line arrives, and what makes a read visible too.
+{
+  const stepFor = async (sessionId) => {
+    const res = fakeResponse()
+    await stateRoute.handler(fakeRequest({ body: JSON.stringify({ sessionId }) }), res)
+    return JSON.parse(res.body).agentStep
+  }
+  const agentExec = { agent: { session: { header: { cwd: '/Users/example/KnownProject' } } } }
+
+  // A read that names no device, run as the model would: the step is recorded whether or not
+  // the call itself can answer, because the panel is told what was ASKED, not what worked.
+  const logTool = registeredTools.find((tool) => tool.name === 'xcode_log')
+  await logTool.execute({ runId: 'xr-nothing', grep: 'error:' }, agentExec).catch(() => {})
+  const read = await stepFor('session-known')
+  equal(read?.tool, 'xcode_log', 'the step names the tool the model called')
+  equal(read?.kind, 'read', 'a read is recorded as a read, so it never opens the panel by itself')
+  equal(read?.runId, 'xr-nothing', 'and carries the run it was about')
+  check(String(read?.detail).includes('grep error:'), 'with the fields that identify the step', read?.detail)
+  equal(read?.workspace, '/Users/example/KnownProject', 'tagged with the calling session workspace')
+
+  // The strip belongs to one session's project: another workspace is not shown this step, and a
+  // panel that cannot name a session is not either.
+  equal(await stepFor('lookin-no-step'), null, 'another workspace sees no step')
+  equal(await stepFor('session-no-cwd'), null, 'and neither does a session with no directory')
+
+  // A new call replaces the step, newest first: the strip is what the model is doing now.
+  const doctorTool = registeredTools.find((tool) => tool.name === 'xcode_doctor')
+  await doctorTool.execute({}, agentExec)
+  const newest = await stepFor('session-known')
+  equal(newest?.tool, 'xcode_doctor', 'the newest call is the step on screen')
+  check(Number.isFinite(newest.at) && newest.at >= read.at, 'with the time it happened', `${newest.at} vs ${read.at}`)
 }
 
 console.log(`${checks - failures}/${checks} checks passed`)

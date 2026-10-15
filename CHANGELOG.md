@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.6.20
+
+### Added
+
+- **A build the model starts brings the panel forward, and every step is named in it.** A run tagged
+  `by agent` used to be adopted only if the panel happened to be open, so a build from `xcode_run`
+  ran unseen. Now the panel opens itself for a build, test, clean or archive: the official right
+  sidebar is asked for this plugin's tab through `sidebarRight.openTab`, and a shell whose column is
+  owned by better-sidebar — or that has no sidebar at all — gets the floating panel, because this
+  plugin has no verified way to bring one of its better-sidebar tabs forward. One reveal per step:
+  a step already revealed is not reopened, so a panel the user closes stays closed.
+- **An "AI" strip in the panel** names what the model last asked this plugin to do, in words
+  (`正在构建 · Enshi · Debug`, `正在调试 App`), with how long ago it was — including the reads that
+  leave no run behind (`xcode_lldb`, `xcode_device_log`, `xcode_log`, `xcode_project`,
+  `xcode_destinations`, `xcode_doctor`). The host records each step in `noteAgentStep`, keyed by
+  workspace exactly like runs, so a panel only ever shows its own session's steps; the strip says so
+  plainly when the model has not called the plugin yet.
+- **A switch beside it, `AI 调用时自动打开`**, turns the opening off for anyone who would rather not
+  have the sidebar switch under them. On by default, remembered in `localStorage` under
+  `dsh-xcodebuild:autoOpen`. Reads never open the panel whatever it says — only a build does, and the
+  strip shows them either way.
+
+### Fixed
+
+- **`npm test` and `npm run test:mount` run again after a desktop update.** The client suite loads
+  jsdom, React and React DOM out of the desktop's `app.asar`, and it looked for them under
+  `Resources/app` — the spelling the Electron main process aliases to the archive. The current build
+  runs `npm test` under a Helper binary launched as Node, where that alias does not resolve, so the
+  suite died on `Cannot find module …/Resources/app/node_modules/jsdom`. The archive itself, the
+  project's own `node_modules`, and `DSH_XCODEBUILD_TEST_MODULES` are tried now, the alias last.
+- **The mount suite's expected route list is current again**: it predated the `installPlan` and
+  `install` routes, so `npm run test:mount` failed on a fully working host half.
+
 ## 0.6.19
 
 ### Fixed

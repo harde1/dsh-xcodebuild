@@ -23,9 +23,19 @@ import { dirname, join } from 'node:path'
 
 const require = createRequire(import.meta.url)
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
-const APP = ['app', 'app.asar.unpacked']
-  .map((dir) => `/Applications/DSH Desktop.app/Contents/Resources/${dir}/node_modules`)
-  .find((dir) => existsSync(join(dir, 'jsdom'))) ?? '/Applications/DSH Desktop.app/Contents/Resources/app/node_modules'
+// Where jsdom, React and React DOM come from.
+//
+// The Electron main process resolves `Resources/app` to `Resources/app.asar`, but a Helper binary
+// launched as Node does not — and `npm test` runs under exactly that binary, so all three
+// spellings are tried, the archive included. `DSH_XCODEBUILD_TEST_MODULES` names a directory
+// holding the three, for a machine where none of them resolves.
+const APP = [
+  process.env.DSH_XCODEBUILD_TEST_MODULES ?? '',
+  join(ROOT, 'node_modules'),
+  ...['app', 'app.asar.unpacked', 'app.asar']
+    .map((dir) => `/Applications/DSH Desktop.app/Contents/Resources/${dir}/node_modules`),
+].find((dir) => dir !== '' && existsSync(join(dir, 'jsdom')))
+  ?? '/Applications/DSH Desktop.app/Contents/Resources/app.asar/node_modules'
 const ROUTE_PREFIX = '/_dsh/dsh-xcodebuild/'
 const TAB_ID = 'dsh-xcodebuild'
 
@@ -4517,6 +4527,139 @@ section('Apps waits for a device list that is still being read')
   equal(processes().length, 1, 'the apps are read once the list is in')
   equal(processes()[0]?.body.destination, phone.destination, 'for the destination that was just chosen')
   check(container.querySelector('.xcb-lldb-apps-row') !== null, 'and the running apps are listed', note())
+}
+
+section('an agent build brings this plugin forward')
+{
+  const workspace = '/Users/mac/Project/AgentBuild'
+  const run = {
+    runId: 'xr9', action: 'build', scheme: 'Enshi', configuration: 'Debug',
+    destination: 'generic/platform=iOS Simulator', status: 'running', exitCode: null,
+    durationMs: 1200, lineCount: 4, warningCount: 0, errors: [], artifact: null,
+    note: '', death: null, origin: 'agent',
+  }
+  // What the host records for the step, and what the panel is expected to show.
+  let step = { tool: 'xcode_run', kind: 'run', action: 'build', detail: 'Enshi · Debug', workspace, at: 1000 }
+  dom.window.localStorage.clear()
+  const calls = serve({
+    state: () => ({ workspace, activeRunId: 'xr9', active: run, runs: [run], agentStep: step }),
+    poll: () => ({ lines: [{ n: 1, k: 'task', t: 'Compile A.swift' }], next: 2, firstAvailable: 1 }),
+  })
+  const opened = []
+  const instance = mount({
+    sidebarRight: true,
+    services: { sidebarRight: { openTab: (kind, options) => opened.push({ kind, options }) } },
+  })
+  const { container } = await render([
+    React.createElement(instance.components.get('dsh-xcodebuild-panel').component, { key: 'overlay' }),
+    React.createElement(instance.components.get('dsh-xcodebuild-toggle').component, { key: 'toggle', sessionId: 'agent-build' }),
+  ])
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 80)) })
+  equal(opened.map((entry) => entry.kind), ['xcodebuild'],
+    'the right sidebar is asked for this plugin tab, by the kind it registered')
+  check(container.querySelector('.xcb-panel') === null,
+    'and the floating panel is not used as well: one surface, not two')
+
+  section('a step is revealed once, not on every poll')
+  const seen = opened.length
+  step = { ...step, at: 2000, detail: 'Enshi · Debug · more' }
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 700)) })
+  equal(opened.length, seen + 1, 'a NEW step is revealed')
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 700)) })
+  equal(opened.length, seen + 1, 'while the same step is not revealed again')
+
+  section('a read is not worth taking the screen for')
+  step = { tool: 'xcode_lldb', kind: 'read', detail: 'view-hierarchy', workspace, at: 3000 }
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 700)) })
+  equal(opened.length, seen + 1, 'a hierarchy dump leaves the sidebar where it was')
+  check(calls.some((call) => call.method === 'state'), 'the state read is what carried the step')
+}
+
+section('with a docking sidebar in charge, the floating panel carries the step')
+{
+  const workspace = '/Users/mac/Project/AgentDock'
+  const run = {
+    runId: 'xr1', action: 'archive', scheme: 'Enshi', configuration: 'Release',
+    destination: 'generic/platform=iOS', status: 'running', exitCode: null, durationMs: 10,
+    lineCount: 0, warningCount: 0, errors: [], artifact: null, note: '', death: null, origin: 'agent',
+  }
+  dom.window.localStorage.clear()
+  serve({
+    state: () => ({
+      workspace,
+      activeRunId: 'xr1',
+      active: run,
+      runs: [run],
+      agentStep: { tool: 'xcode_run', kind: 'run', action: 'archive', detail: 'Enshi · Release', workspace, at: 500 },
+    }),
+    poll: () => ({ lines: [], next: 1, firstAvailable: 1 }),
+  })
+  // The dock owns the panel here, and this plugin has no verified way to bring one of its
+  // tabs forward there: the floating panel is what puts the step on screen.
+  const instance = mount({ dock: {} })
+  const { container } = await render([
+    React.createElement(instance.components.get('dsh-xcodebuild-panel').component, { key: 'overlay' }),
+    React.createElement(instance.components.get('dsh-xcodebuild-toggle').component, { key: 'toggle', sessionId: 'agent-dock' }),
+  ])
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 120)) })
+  check(container.querySelector('.xcb-panel') !== null, 'the floating panel opens itself for the agent build')
+  check(container.querySelector('.xcb-ai')?.textContent.includes('正在归档') === true,
+    'and names the step', container.querySelector('.xcb-ai')?.textContent)
+}
+
+section('the AI strip names the step, and the switch turns the reveal off')
+{
+  const workspace = '/Users/mac/Project/AgentStrip'
+  const run = {
+    runId: 'xr4', action: 'run', scheme: 'Bench', configuration: 'Debug',
+    destination: 'id=u', status: 'running', exitCode: null, durationMs: 400,
+    lineCount: 1, warningCount: 0, errors: [], artifact: null, note: '', death: null, origin: 'agent',
+  }
+  let step = { tool: 'xcode_run', kind: 'run', action: 'run', detail: 'Bench · Debug', workspace, at: Date.now() }
+  dom.window.localStorage.clear()
+  dom.window.localStorage.setItem('dsh-xcodebuild:autoOpen', 'off')
+  serve({
+    state: () => ({ workspace, activeRunId: 'xr4', active: run, runs: [run], agentStep: step }),
+    poll: () => ({ lines: [], next: 2, firstAvailable: 1 }),
+  })
+  // A shell with neither sidebar, so "the panel opened itself" is exactly whether the
+  // floating panel is on screen — the one surface a switch can be checked against.
+  const instance = mount({})
+  const { container } = await render([
+    React.createElement(instance.components.get('dsh-xcodebuild-panel').component, { key: 'overlay' }),
+    React.createElement(instance.components.get('dsh-xcodebuild-toggle').component, { key: 'toggle', sessionId: 'agent-strip' }),
+  ])
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 80)) })
+  check(container.querySelector('.xcb-panel') === null, 'with the switch off, an agent build does not open the panel')
+
+  // The strip lives inside the panel, so the panel is opened by hand here.
+  await act(async () => {
+    propsOf(container.querySelector('.xcb-trigger')).onClick()
+    await new Promise((resolve) => setTimeout(resolve, 40))
+  })
+  const strip = () => container.querySelector('.xcb-ai')
+  check(strip() !== null, 'the panel carries an AI strip')
+  check(strip()?.textContent.includes('正在构建并运行'), 'naming what the agent is doing', strip()?.textContent)
+  check(strip()?.textContent.includes('Bench · Debug'), 'with the fields that step carries', strip()?.textContent)
+  const box = () => container.querySelector('.xcb-ai-switch input')
+  equal(box()?.checked, false, 'the switch shows the preference that was stored')
+  check(strip()?.textContent.includes('AI 调用时自动打开'), 'and says what it switches')
+
+  section('turning it on is remembered')
+  await act(async () => {
+    propsOf(box()).onChange({ target: { checked: true } })
+    await new Promise((resolve) => setTimeout(resolve, 40))
+  })
+  equal(dom.window.localStorage.getItem('dsh-xcodebuild:autoOpen'), 'on', 'the choice survives a reload')
+  equal(container.querySelector('.xcb-ai-switch input')?.checked, true, 'and the switch agrees')
+
+  section('with no step yet, the strip says so and still offers the switch')
+  step = null
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 700)) })
+  check(container.querySelector('.xcb-ai-what.idle')?.textContent.includes('还没有调用过本插件') === true,
+    'the strip says nothing has been asked of the plugin yet',
+    container.querySelector('.xcb-ai')?.textContent)
+  check(container.querySelector('.xcb-ai-switch input') !== null, 'and the switch is reachable before the first call')
 }
 
 console.log(`${checks - failures}/${checks} checks passed`)

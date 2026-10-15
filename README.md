@@ -32,10 +32,21 @@ Inspired by the SweetPad VS Code extension. The package and composition row keep
 
 Both are optional services (`ctx.inject`), so a profile without them still mounts the tools.
 
-**The panel follows the model.** `xcode_run` tags its run with the calling session's working
-directory, so the panel open on that project picks it up within a few seconds of idle polling: it
-clears the old log, streams the new one, matches scheme / configuration / destination to what is
-actually building, and marks the run `by agent`. Stop works on it like on any other run.
+**The panel follows the model, and comes forward for a build.** `xcode_run` tags its run with the
+calling session's working directory, so the panel open on that project picks it up within a few
+seconds of idle polling: it clears the old log, streams the new one, matches scheme / configuration /
+destination to what is actually building, and marks the run `by agent`. Stop works on it like on any
+other run.
+
+A build, run, test or archive started by the model also **opens the panel**: the official right
+sidebar is asked for this plugin's tab with `sidebarRight.openTab`, and a shell whose column is owned
+by better-sidebar — or that has no sidebar at all — gets the floating panel instead, because a step
+nobody can see is the one thing this is for. Reads (`xcode_lldb`, `xcode_device_log`, `xcode_log`, and
+the rest) never take the screen that way; they are recorded in the panel's **AI strip** instead, which
+names the step in the panel's own words (`正在构建 · Enshi · Debug`) with how long ago it was. The
+switch beside it, `AI 调用时自动打开`, turns the opening off and is remembered in `localStorage` under
+`dsh-xcodebuild:autoOpen` (on by default). The host records each step in `agentSteps`
+(`noteAgentStep`), keyed by workspace like the runs, and the panel is shown only its own session's.
 
 **A panel**, in three seats, taking whichever sidebar the shell has:
 
