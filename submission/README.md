@@ -12,7 +12,7 @@ Upstream rules: <https://github.com/awesome-dsh-plugin/awesome-dsh-plugin/blob/m
 | `dsh.bundle` manifest in `package.json` | ✅ `{"patch": "./cordis.patch.yml"}` — this is what CI checks first |
 | `cordis.patch.yml` at the root, inserting the row | ✅ `id: dsh-xcodebuild`, `name: dsh-xcodebuild` |
 | `dsh.client` for browser UI | ✅ `platform: web` |
-| Real, working code rather than a placeholder | ✅ 6 tools, 3361 checks across 18 test files |
+| Real, working code rather than a placeholder | ✅ 7 tools; 4670 checks across 39 suites, all run by `npm test` (measured at 0.6.22) |
 | `LICENSE` file for the MIT declared in `package.json` | ✅ added, copyright chuckliang |
 | `node_modules/` not committed | ✅ already in `.gitignore` |
 | Public repository | ✅ `https://github.com/harde1/dsh-xcodebuild` |
@@ -114,13 +114,16 @@ rather than copied, and the `0.1.5` tuple needs its own branch:
 This admits `0.1.5-rc.2` and stable `0.1.x` from `0.1.5` up, and stops admitting the next
 prerelease line, which is the honest cost of the approach.
 
-### No npm package and no tarball, for now
+### The npm package is published; no tarball
 
-Both are listed as *recommended* for a better install experience, not required. The `allowBuilds`
-approval they avoid only applies to packages that run build scripts on install, and this one is plain
-ESM with no `prepare` script, so installing from the repository source needs no approval and no
-tarball. Publishing to npm would be nicer for users — `dsh plugin add dsh-xcodebuild` instead of a
-git URL — and is worth doing once the repository is settled.
+Publishing was *recommended* for a better install experience rather than required, and it is done:
+`dsh-xcodebuild` is on npm (`maintainers: harde1`), so the install is `dsh plugin add dsh-xcodebuild`
+instead of a git URL, and the entry above needs no version — the list reads this repository's
+`package.json`, so a release reaches the market by being published, not by editing the entry.
+
+The tarball field stays unused for the reason it was skipped: `allowBuilds` approval only applies to
+packages that run build scripts on install, and this one is plain ESM with no `prepare` script, so
+neither channel needs approval.
 
 If it is ever needed, the tarball field must point at GitHub's own release hosting and must not put a
 version in the filename unless the tag is pinned; `latest/download/` takes the filename literally, so
