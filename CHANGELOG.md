@@ -1,5 +1,60 @@
 # Changelog
 
+## 0.6.22
+
+### Added
+
+- **Views are now read out of the running app, not out of a stopped one.** Reading the tree, the
+  styles, the attributes, the layout, the per-view pictures and an edit each used to cost a debugger
+  stop — the app froze, was asked, and was let go, over and over. Now the app is asked to answer for
+  itself: LLDB loads a small helper into it **once** (`dlopen` of `lib/probe/xcb-probe.m`, compiled
+  for the app's platform, signed and copied into its data container on a phone), and from then on
+  every read is a JSON line over the app's own loopback socket — forwarded to this Mac by `iproxy` on
+  hardware. Every op answers in the same text the debugger path prints, so the existing parsers and
+  the existing panel are unchanged, and the two paths stay comparable. The stop that loads the helper
+  is the only one left, and the app is running again immediately afterwards.
+- **The status row says which of the two is in use** — `读视图不停 App` while the app is answering for
+  itself, `调试器读取：<reason>` when the read had to go through the debugger — and `op: state`
+  carries it as `probe: {active, port, note}`, because "the app is never stopped" and "the app is
+  stopped on every click" are indistinguishable from a screenshot.
+- `iproxy` is registered as a dependency (`brew install libusbmuxd`, which `libimobiledevice` already
+  brings in) and named in the classic channel's combined install command.
+
+### Fixed
+
+- **A device run that cannot reach its phone now says so before the build.** An unpaired phone used
+  to fail at the INSTALL — after the whole build, minutes later — and the fix for it is a tap on the
+  phone (Trust). Nothing about a device is or was remembered, so the next Run always saw the truth;
+  what was missing was any check up front. `run` now asks CoreDevice about the destination once,
+  before the first line of compiling, and refuses in about a second when the phone is known to be
+  unpaired: naming the phone, saying that CoreDevice was asked again and still says unpaired (which
+  is what tells a person their Trust tap did not land), and that nothing was built. A phone that is
+  merely away, absent from CoreDevice (an iOS 16 device), or a destination with no id is left to the
+  toolchain exactly as before.
+- **A host that dies is no longer survived by its debugger.** `dispose` was the only path that
+  signalled lldb, so a harness restart, a crash or a SIGTERM ended the process with the session still
+  open — leaving an lldb holding the app STOPPED, which is the frozen app this plugin keeps being
+  blamed for, with nothing left attached to let it go. The session now SIGTERMs its child from an
+  `exit` listener as well (measured: a fixture app left running with an orphaned `lldb` and
+  `debugserver` also wedged CoreSimulator, so the next `simctl install` never returned), and the
+  polite detach-then-quit path is unchanged.
+- **A phone that is plugged in but not paired now says so, instead of passing CoreDevice's raw
+  sentence through.** Measured on a cabled iPhone XS Max (iOS 18.7.9) whose pairing record this Mac
+  does not have: `devicectl` DISCOVERS the phone (`pairingState: unpaired`) and then every route
+  answers `The device must be paired before it can be connected. (com.apple.dt.CoreDeviceError error 2
+  (0x02))` — which names no phone, no cause and no remedy. Installing, launching, the Apps list, the
+  app log, the rendered views, the window image and the helper's own copy now say which phone it is,
+  that CoreDevice can see it and simply has no pairing, and what to do: unlock it, plug it in, tap
+  Trust, or pair it again with `xcrun devicectl manage pair --device <udid>`. The destination list
+  says `(not paired)` beside such a device before a build is even tried, `paired` travels on the
+  destination record (`device-sources.js`), and the failure is only read as this one when the output
+  really is a `RemotePairingError` — a bare `error 2` from another domain is not.
+- **The first read of a session left the app stopped.** An attach stops the app, and `pauseFor` only
+  resumes a process *it* stopped — so the stop the attach left behind stayed, and every read after it
+  found the app stopped again. The helper needs the app's own threads to answer at all, so the stop
+  the attach left is now ended when the helper is brought up; a stop the user asked for (the panel's
+  Interrupt) is still left exactly as it was, and reads go through the debugger there.
+
 ## 0.6.21
 
 ### Fixed

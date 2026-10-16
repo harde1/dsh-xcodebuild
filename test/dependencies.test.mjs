@@ -121,7 +121,9 @@ for (const entry of brewed) {
   check(LEGACY_TOOLCHAIN_INSTALL.includes(entry.install.split(' ').pop()),
     `${entry.command}'s formula appears in the combined install command`, LEGACY_TOOLCHAIN_INSTALL)
 }
-check(brewed.length === 6, 'the classic channel\'s brew tools are the six it always was', `${brewed.length} entries`)
+// Seven since `iproxy` joined: it comes from libusbmuxd, which libimobiledevice installs anyway, but a
+// tool the channel needs is a formula the combined command has to name.
+check(brewed.length === 7, 'the classic channel\'s brew tools are the seven it now is', `${brewed.length} entries`)
 equal(legacy.find((entry) => entry.command === 'pymobiledevice3')?.install, 'pipx install pymobiledevice3',
   'pymobiledevice3 lists the running apps on that hardware, and is installed with pipx')
 check(!LEGACY_TOOLCHAIN_INSTALL.includes('pymobiledevice3'), 'and is not put in the brew command, which cannot install it')

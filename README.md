@@ -93,7 +93,9 @@ a colour-coded streaming log, and a filter bar.
 strip that is hidden the rest of the time. `View Hierarchy` answers the question a screenshot cannot:
 it attaches LLDB to the app this project last ran, stops it, and draws the key window's view tree —
 class, address, frame, text, hidden flag, and a stack view's `axis`/`distribution`/`alignment`, which
-is usually why a screen looks wrong. A filter narrows it by class, text or address without asking the
+is usually why a screen looks wrong. The stop is the old way of doing it: the app loads a small helper
+the first time it is read (see **Reading an app without stopping it**), and from then on it answers
+for itself while it keeps running. A filter narrows it by class, text or address without asking the
 host again — the rows that match are highlighted, the ancestors that place them are dimmed, and the
 bar says how many matched. The tree folds like Lookin's: a triangle on every row that has children
 (`⌥`-click for a whole branch), the arrow keys to walk and fold it, the fold kept by address so a
@@ -314,6 +316,35 @@ remembered**: a filter when it is committed (Enter or clicking away), a search w
 with (Enter, or `Esc`). So `↑` never offers a prefix of what is being typed, and typing again ends
 the walk — which is what makes `↓` mean "my draft" again.
 
+**Reading an app without stopping it.** Every read used to be a debugger stop: the app was frozen,
+asked, and let go — 4 s of attaching on a simulator and 15–23 s on a phone, and a frozen app in
+between that loses animation frames and the very state being looked at. So the app is asked to answer
+for itself instead. LLDB is used **once**, to `dlopen` a helper out of the plugin's own cache and
+start it (`lib/probe/xcb-probe.m`, compiled here for the app's platform and, on a phone, signed with
+a development identity and copied into the app's data container). That helper listens on the app's
+own loopback — `iproxy` forwards it to this Mac for a phone — and every read afterwards is a line of
+JSON over a socket: the tree, the styles, the screen size and class chains, an `_ivarDescription`, a
+layout report, the per-view pictures, and an edit, which the app applies and reports back. UIKit is
+only touched on the main thread, a read that cannot be answered is an error rather than a wait, and
+the host always applies a deadline, because a debugger-stopped app would freeze the main-queue hop.
+
+The helper costs one short stop to load and nothing after it. Everything it does is what the debugger
+path already did, in the same text, parsed by the same parsers — so the two are comparable, and the
+debugger is still there for everything the helper cannot do: an app that is already stopped (a
+breakpoint, a manual interrupt), a target with no SDK to build for, no signing identity, no `iproxy`,
+or a version of the helper this plugin does not know. Any of those falls back to the old path and says
+why; the status row says which of the two is in use — `读视图不停 App` when the app is answering for
+itself, and `调试器读取：<reason>` when it is not. The helper is deliberately small: it makes no
+decisions, it never touches Lookin's protocol or its server, and it is loaded only into an app this
+plugin is already debugging. Measured against a test app on an iPhone 17 Pro simulator: the injection
+itself is ~250 ms, the first read of a session 12 s (attaching the debugger, building the helper,
+reading the tree and every view's attributes and layout once, and writing the Lookin file), and every
+read after it ~230 ms — with the app never stopped, which its own ticking label proves between reads. All of
+that is measured on a simulator, where the whole path is exercised. On a phone the helper itself is
+built and signed here (arm64, `Apple Development`), but the parts only a phone can exercise — copying
+it into the app's data container, reaching it through `iproxy`, and a signature that phone accepts —
+have not been run against hardware yet, so a failure there names the signature rather than guessing.
+
 ## What it needs on the machine
 
 Run the `xcode_doctor` tool — or open the panel, which says the same thing in a warning row — to see
@@ -330,6 +361,19 @@ device toolchain.
 | `idevice_id`, `ideviceinfo`, `idevicesyslog` | `brew install libimobiledevice` | seeing, identifying, and reading the log of an iOS 16 or earlier device |
 | `ideviceinstaller` | `brew install ideviceinstaller` | **installing** onto such a device |
 | `ios-deploy` | `brew install ios-deploy` | **launching** on such a device |
+| `iproxy` | `brew install libusbmuxd` (already pulled in by `libimobiledevice`) | reaching the **helper inside the app** on a phone, so reads need no debugger stop |
+
+**A phone CoreDevice can see but has no pairing with** is checked before a `run` starts building:
+nothing about a device is remembered, so tapping Trust and pressing Run again works with no refresh,
+re-selection or restart, and a phone that is still unpaired is refused in about a second instead of
+after the whole build — naming the phone, and saying that CoreDevice was asked again and still says
+unpaired (which is how a Trust tap that did not land is told apart from one that did). It is also a
+failure of its own wherever it arrives unannounced, and not the `says nothing` kind: the device is
+offered, and then every command answers
+`The device must be paired before it can be connected. (com.apple.dt.CoreDeviceError error 2 (0x02))`.
+That sentence names no phone, no cause and no remedy, so no route passes it through — the destination
+list says `(not paired)` beside the device, and anything that fails against it says which phone it is
+and to unlock it, tap Trust, or pair it again with `xcrun devicectl manage pair --device <udid>`.
 | `xcbeautify` | `brew install xcbeautify` | turning build output into one line per task, with warnings and errors marked. Optional, and used automatically when it is installed |
 
 **These are three separate formulae, and that is the trap.** `brew install libimobiledevice`
@@ -337,7 +381,7 @@ provides neither `ideviceinstaller` nor `ios-deploy`, so following the obvious i
 both install and launch broken:
 
 ```sh
-brew install libimobiledevice ideviceinstaller ios-deploy
+brew install libimobiledevice ideviceinstaller ios-deploy libusbmuxd
 ```
 
 The device tools are optional in a strict sense — simulators, macOS, and every device Xcode manages
@@ -813,6 +857,7 @@ test/             plain-node suites (no test framework) run by `npm test`
 npm test           # ring buffer, classifier, destinations, project search, listing, client, device channel
 npm run test:mount # mounts the host half against a fake context (needs one link, see below)
 npm run test:live  # real build against a real project (slow; needs Xcode)
+npm run test:probe-live # the helper inside an app, against a real app on a BOOTED simulator
 ```
 
 - `test/ring-buffer.test.mjs` imports the shipped `lib/ring.js` (not a copy) and cross-checks it
@@ -900,6 +945,14 @@ npm run test:live  # real build against a real project (slow; needs Xcode)
   that shrank under the reader.
 - `test/live-gemoy.mjs` drives the real tools against a project and checks a successful build, the
   log volume, warning classification, incremental reads, and the `-showBuildSettings` lookup.
+- `test/probe-live.mjs` is the one check the unit suites cannot make: it builds its own fixture app (a
+  window, a card, and a label that counts up ten times a second), installs and launches it on a
+  **booted** simulator, and drives the panel's own routes against it. It asserts that the tree, the
+  styles, the attributes, the layout, the pixels and an edit all come from the helper inside the app
+  (`probe: true`) with the app never stopped — proved by the label's text having moved between two
+  reads — and that a stop the user asked for is still read through the debugger. It boots nothing and
+  changes nothing, and it skips with a message when no simulator is booted. Deliberately not part of
+  `npm test`: it needs a simulator, an app, and a debugger attach.
 
 The client test borrows `react` and `jsdom` from the deployment, so it expects the app at the
 default `/Applications/DSH Desktop.app` path. The host half imports `@deepseek-ai/dsh-tools`, which

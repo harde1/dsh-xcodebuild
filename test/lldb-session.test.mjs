@@ -11,7 +11,13 @@
 // Run: node test/lldb-session.test.mjs
 import { EventEmitter } from 'node:events'
 import { PassThrough } from 'node:stream'
+import { spawnSync } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
+import { dirname, join } from 'node:path'
 import { attachCommands, createLldbSession, readLldbState } from '../lib/lldb-session.js'
+
+/** This test's own directory, for the one check that runs a second node against the real module. */
+const here = dirname(fileURLToPath(import.meta.url))
 
 let failures = 0
 let checks = 0
@@ -732,6 +738,41 @@ section('a child that ignores quit is signalled')
   await session.dispose()
   check(scripted.kills.includes('SIGTERM'), 'SIGTERM is the escalation')
   check(scripted.kills.includes('SIGKILL'), 'and SIGKILL the last resort, so no debugger is left behind')
+}
+
+section('a host that dies without disposing takes its debugger with it')
+{
+  // A real child, not a scripted one: what is being checked is a signal sent from an `exit`
+  // listener, and a fake cannot be observed after this process is gone. The child node here
+  // creates a session whose lldb is `sleep`, prints that sleep's pid, and exits the way a crash or a
+  // harness restart does — without disposing.
+  const started = spawnSync(process.execPath, ['-e', `
+    const { spawn } = require('node:child_process')
+    const { createLldbSession } = require(${JSON.stringify(join(here, '..', 'lib', 'lldb-session.js'))})
+    let spawned = null
+    const session = createLldbSession({
+      argv: ['sleep', '60'],
+      spawnFn: (command, args, options) => { spawned = spawn(command, args, options); return spawned },
+    })
+    session.start()
+    console.log(spawned.pid)
+    process.exit(0)
+  `], { encoding: 'utf8' })
+  const pid = Number(String(started.stdout ?? '').trim().split('\n').pop())
+  check(Number.isInteger(pid) && pid > 0, 'the fixture started a debugger', String(started.stdout ?? '').trim())
+  if (Number.isInteger(pid) && pid > 0) {
+    // The signal is delivered as the child exits, so it is checked a moment later.
+    let alive = true
+    for (let attempt = 0; attempt < 20 && alive; attempt += 1) {
+      try {
+        process.kill(pid, 0)
+      } catch {
+        alive = false
+      }
+      if (alive) spawnSync(process.execPath, ['-e', 'setTimeout(() => {}, 50)'])
+    }
+    check(alive === false, 'and the debugger is gone once the host is, so no app is left held')
+  }
 }
 
 console.log(`\n${checks - failures}/${checks} checks passed`)

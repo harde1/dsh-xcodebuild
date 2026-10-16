@@ -2057,6 +2057,9 @@ section('returning to a workspace restores its choices')
       destinations: [
         { kind: 'device', id: 'LEGACY-PHONE', name: 'congiPhone', os: '16.7.12', placeholder: false, destination: 'platform=iOS,id=LEGACY-PHONE' },
         { kind: 'simulator', id: 'SIM-1', name: 'iPhone 17', os: '26.0', placeholder: false, destination: 'platform=iOS Simulator,id=SIM-1' },
+        // A phone CoreDevice can see but this Mac has no pairing with: offered, and doomed on Build
+        // until it is paired, so the list has to say which one it is.
+        { kind: 'device', id: 'UNPAIRED-PHONE', name: 'iPhone', os: '18.7.9', placeholder: false, paired: false, destination: 'platform=iOS,id=UNPAIRED-PHONE' },
       ],
       recommended: 'platform=iOS,id=LEGACY-PHONE',
     }),
@@ -2101,6 +2104,14 @@ section('returning to a workspace restores its choices')
   equal(asked?.body.preferred, 'platform=iOS,id=LEGACY-PHONE',
     'the panel tells the host what this workspace used, so the host can honour it')
   equal(asked?.body.scheme, 'Second', 'and it asks about the scheme it restored')
+
+  // A phone that is offered but cannot be used has to be told apart from one that works: a device
+  // CoreDevice sees without a pairing fails every command with an error that names no phone.
+  const labels = Array.from(dest?.querySelectorAll('option') ?? []).map((entry) => entry.textContent)
+  check(labels.some((label) => label.includes('iPhone · 18.7.9 (not paired)')) === true,
+    'an unpaired device is marked in the list, before a build is tried', JSON.stringify(labels))
+  check(labels.some((label) => label.includes('congiPhone') && label.includes('not paired') === false) === true,
+    'and a phone that is fine is not', JSON.stringify(labels))
 }
 
 
@@ -2182,7 +2193,7 @@ section('a missing device tool is named, with the command that installs it')
     missingRequired,
     missingOptional,
     legacyInstall: missingOptional.length > 0
-      ? 'brew install libimobiledevice ideviceinstaller ios-deploy'
+      ? 'brew install libimobiledevice ideviceinstaller ios-deploy libusbmuxd'
       : '',
   })
   const build = (ready) => ({
@@ -4687,6 +4698,52 @@ section('the AI strip names the step, and the switch turns the reveal off')
     'the strip says nothing has been asked of the plugin yet',
     container.querySelector('.xcb-ai')?.textContent)
   check(container.querySelector('.xcb-ai-switch input') !== null, 'and the switch is reachable before the first call')
+}
+
+section('the status row says whether the app is being read live or through the debugger')
+{
+  const workspace = '/Users/mac/Project/LiveReads'
+  const run = {
+    runId: 'xr5', action: 'run', scheme: 'Bench', configuration: 'Debug',
+    destination: 'id=u', status: 'running', exitCode: null, durationMs: 400,
+    lineCount: 1, warningCount: 0, errors: [], artifact: null, note: '', death: null, origin: 'agent',
+  }
+  let probe = { active: true, port: 51234, note: '' }
+  serve({
+    state: () => ({ workspace, activeRunId: 'xr5', active: run, runs: [run], agentStep: null, probe }),
+    poll: () => ({ lines: [], next: 2, firstAvailable: 1 }),
+  })
+  const instance = mount({})
+  const { container } = await render([
+    React.createElement(instance.components.get('dsh-xcodebuild-panel').component, { key: 'overlay' }),
+    React.createElement(instance.components.get('dsh-xcodebuild-toggle').component, { key: 'toggle', sessionId: 'live-reads' }),
+  ])
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 80)) })
+  // The panel's open state is part of the module's state, which every section in this file shares:
+  // an earlier section may have left it open, in which case clicking the trigger would close it.
+  if (container.querySelector('.xcb-status') === null && container.querySelector('.xcb-trigger') !== null) {
+    await act(async () => {
+      container.querySelector('.xcb-trigger').dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+    })
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 700)) })
+  }
+  const row = () => container.querySelector('.xcb-status')
+  check(row()?.textContent.includes('读视图不停 App') === true,
+    'a live read is announced, because "never stopped" and "stopped every click" look identical otherwise',
+    row()?.textContent)
+
+  section('and when the read has to go through the debugger, it says why')
+  probe = { active: false, port: 0, note: 'the app is stopped' }
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 700)) })
+  check(row()?.textContent.includes('调试器读取：the app is stopped') === true,
+    'the reason travels with the state', row()?.textContent)
+  check(row()?.textContent.includes('读视图不停 App') === false, 'and the live claim is gone')
+
+  section('with nothing known yet, the row is quiet')
+  probe = null
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 700)) })
+  check(row()?.textContent.includes('调试器读取') === false && row()?.textContent.includes('读视图不停 App') === false,
+    'an older host that says nothing about reads adds nothing to the row', row()?.textContent)
 }
 
 console.log(`${checks - failures}/${checks} checks passed`)
