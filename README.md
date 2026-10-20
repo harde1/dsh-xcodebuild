@@ -440,6 +440,16 @@ npm pack
 dsh plugin --profile web add file:/absolute/path/to/dsh-xcodebuild-0.1.1.tgz
 ```
 
+### Keeping a profile on the version you are working on
+
+A profile can be a *generation* install (the symlink points into
+`profiles/.generations/live/<pkg>+<version>+<hash>`) or a plain one (a real directory). The plugin
+manager owns the first kind and refuses to promote a tree that is not self-contained, so
+`npm run sync:profiles` only writes the second kind; use `plugin_manager install_bundle
+dsh-xcodebuild@<version>` for the first. Run it before blaming a behaviour on this checkout — a
+profile sitting on an old version has its own code, and its failures read as if the working tree
+were at fault.
+
 ## Notable behaviour
 
 **Destinations come from four sources, not one.** `xcodebuild -showdestinations` describes what
@@ -858,7 +868,15 @@ npm test           # ring buffer, classifier, destinations, project search, list
 npm run test:mount # mounts the host half against a fake context (needs one link, see below)
 npm run test:live  # real build against a real project (slow; needs Xcode)
 npm run test:probe-live # the helper inside an app, against a real app on a BOOTED simulator
+npm run sync:profiles   # which installed copy of this plugin is on which version
 ```
+
+`npm run sync:profiles` exists because a profile that pins an old version looks exactly like a bug:
+the panel is current, the code it runs is not. It reports every DSH profile that depends on this
+plugin, then `--write` copies the working tree into the plain profiles. A profile built from
+generations (see [Installation](#installation)) refuses a non-self-contained tree, so it is reported
+and left alone — its update is `plugin_manager install_bundle dsh-xcodebuild@<version>`. Neither a
+restart nor a reload happens by itself: a running host keeps the copy it loaded.
 
 - `test/ring-buffer.test.mjs` imports the shipped `lib/ring.js` (not a copy) and cross-checks it
   against a reference implementation over 300 randomised trials, then measures the eviction path the

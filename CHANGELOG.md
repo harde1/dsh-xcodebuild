@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **`npm run sync:profiles` says which installed copy of this plugin is on which version, and copies
+  the working tree into the profiles it can.** A profile that pins an old build is indistinguishable
+  from a bug from the panel: the web profile here sat on 0.2.1 while this checkout reached 0.6.22, so
+  an iOS 16 install failed on an `ideviceinstaller` command line that had been corrected in 0.6.19 —
+  `-i`, which 1.2.0 rejects with its usage text, reported as the install's own failure. The script
+  reports every DSH profile that depends on the plugin; `--write` replaces a plain profile's copy with
+  a tarball packed exactly as `npm publish` packs it, and a generation profile — whose installer
+  refuses a non-self-contained tree — is reported with the `plugin_manager install_bundle` call that
+  updates it instead.
+
 ## 0.6.22
 
 ### Added

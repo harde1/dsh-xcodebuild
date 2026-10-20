@@ -98,7 +98,8 @@
     "link-host": "node scripts/link-host.mjs",
     "test:mount": "node test/host-mount.test.mjs",
     "test:live": "node test/live-gemoy.mjs",
-    "test:probe-live": "node test/probe-live.mjs"
+    "test:probe-live": "node test/probe-live.mjs",
+    "sync:profiles": "node scripts/sync-profiles.mjs"
   },
   "dsh": {
     "bundle": {
