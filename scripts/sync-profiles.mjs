@@ -21,6 +21,7 @@
 //
 // Run: node scripts/sync-profiles.mjs          # report only
 //      node scripts/sync-profiles.mjs --write  # copy this checkout into place
+//      node scripts/sync-profiles.mjs --write --force  # …even if the version matches
 //
 // Nothing here restarts a host: an updated profile is read when DSH starts again, and
 // a running panel keeps the copy it loaded.
@@ -34,6 +35,10 @@ import { fileURLToPath } from 'node:url'
 const NAME = 'dsh-xcodebuild'
 const checkout = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const write = process.argv.includes('--write')
+// `--force` rewrites a plain profile even when the version already matches: the same
+// version can differ in content, and a working tree that is ahead of the release it
+// still calls itself is exactly the case this tool exists for.
+const force = process.argv.includes('--force')
 
 /** The version this checkout is. */
 const localVersion = JSON.parse(readFileSync(join(checkout, 'package.json'), 'utf8')).version
@@ -155,13 +160,17 @@ let written = 0
 for (const profile of found) {
   const name = profile.dir.split('/').pop()
   const { kind, version } = profile.state
-  const same = version === localVersion
+  const same = version === localVersion && !force
   if (!same) stale += 1
   console.log(`\n${name}  ${profile.dir}`)
   console.log(`  declares:  ${profile.declared}`)
   console.log(`  installed: ${version ?? '—'}  (${kind})`)
   if (same) {
     console.log('  status: in sync')
+    continue
+  }
+  if (force && kind !== 'generation' && !write) {
+    console.log(`  status: same version, different content — --write --force copies this checkout in`)
     continue
   }
   if (kind === 'generation') {
