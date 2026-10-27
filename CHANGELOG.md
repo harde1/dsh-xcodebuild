@@ -1,9 +1,23 @@
 # Changelog
 
-## Unreleased
+## 0.6.23
 
 ### Added
 
+- **Every line a run writes now says how hot the phone was when it was written**, and the run ends
+  with the windows in which the phone warmed. A run is read after the fact to answer a question like
+  "did this fail because the phone was throttling?", and until now the log could not answer it: the
+  temperature was a separate script (`scripts/thermal_merge.py`), merged with the log by hand, after
+  the fact. The PMU reports its battery temperature over the classic diagnostics channel
+  (`pymobiledevice3 diagnostics battery monitor`), which the plugin now reads for the whole run and
+  stamps onto every line as `[T=31.79C]` — `[T=31.79C+]` when the phone is charging, because charging
+  warms a phone on its own and a log that cannot tell the two apart invites the wrong conclusion. The
+  unit is Apple's: 3179 counts is 31.79 °C. At the end of the run the same 5-minute ≥ 0.3 °C window
+  analysis the script printed is printed into the log, with a `sed` command per window and counts of
+  what fired inside it against how often the same message fired outside — a message that fires equally
+  often outside the window was doing its normal work. The samples themselves are kept as a CSV per
+  run (`<run>-<start>-battery.csv`), and `run`'s summary carries `thermal: {samples, peakC, lastC,
+  charging, windows, csv}`.
 - **`npm run sync:profiles` says which installed copy of this plugin is on which version, and copies
   the working tree into the profiles it can.** A profile that pins an old build is indistinguishable
   from a bug from the panel: the web profile here sat on 0.2.1 while this checkout reached 0.6.22, so

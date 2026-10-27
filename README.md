@@ -835,6 +835,18 @@ it.
 - **`run` refuses Xcode's generic placeholder.** `Any iOS Device` names no hardware; passed on to
   `devicectl` it fails as a device-not-found, which points at the wrong thing. It is reported as the
   placeholder it is, and the fix is to pick the connected device.
+- **Every line of a hardware run says how hot the phone was.** The question a log is read to answer is
+  often "did this fail because the phone was throttling?", and the log could not answer it: temperature
+  was a separate script merged with the log afterwards. The PMU reports its battery temperature over the
+  classic diagnostics channel, so the plugin reads it for the whole run and stamps each line —
+  `[T=31.79C]`, `[T=31.79C+]` while charging — and prints the 5-minute ≥ 0.3 °C windows at the end, each
+  with a `sed` command for its slice and a count of what fired inside it against how often the same
+  message fired outside it. Two constraints shaped it: the tag is applied **after** classification,
+  because `classify` anchors on `^\s*note:` and `^(=== |--- |\$ )` and a prefix there would demote every
+  note and section to a plain line; and a run that cannot read a temperature says why once and carries
+  on, because a measurement that was never taken is information about the run, not a reason for it to
+  fail. A simulator has no battery and is told so; a phone with no `pymobiledevice3` gets that tool's
+  install line. The samples are also written per run as a CSV, which is what the window analysis reads.
 - **Each workspace's panel is its own.** State is kept per session rather than shared, so opening a
   panel in one project never shows another's scheme, build or log; and a run records the workspace that
   started it, so the panel only ever lists — or silently adopts — its own. A run started by a *tool*
@@ -965,6 +977,15 @@ restart nor a reload happens by itself: a running host keeps the copy it loaded.
   that shrank under the reader.
 - `test/live-gemoy.mjs` drives the real tools against a project and checks a successful build, the
   log volume, warning classification, incremental reads, and the `-showBuildSettings` lookup.
+- `test/thermal.test.mjs` pins the battery temperature against the two real monitor lines this was
+  built on (3179 counts → 31.79 °C, 3519 → 35.19 °C), and against the things that are *not* samples: a
+  connection error, a usage line, a truncated object, a sample with no `Temperature` at all — which
+  must stay `null` rather than become zero and be averaged into the analysis. It pins the tag's shape,
+  and it pins the reason the tag is applied after classification by asserting that classifying the
+  tagged `note:` and `===` forms *would* demote them. The window analysis is checked on a synthetic
+  climb (found, ~5 minutes, +3.5 °C), on a flat phone (no window), on cooling (not a window), and on
+  both sides of the 0.3 °C threshold; the message counts are checked to list what fired inside a
+  window and to keep the outside count that tells normal work from the cause.
 - `test/probe-live.mjs` is the one check the unit suites cannot make: it builds its own fixture app (a
   window, a card, and a label that counts up ten times a second), installs and launches it on a
   **booted** simulator, and drives the panel's own routes against it. It asserts that the tree, the
